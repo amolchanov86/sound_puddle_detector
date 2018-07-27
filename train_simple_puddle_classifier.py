@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+import pickle
 import glob
 import os
 import librosa
@@ -61,6 +61,7 @@ def one_hot_encode(labels):
 ###########################################################
 ## Getting data
 label_names = {'dry': 0, 'wet': 1}
+label_max = len(label_names) - 1
 parent_dir = '_data/sound_wetroad_dataset/source'
 prepickled_data_filename = '_data/sound_wetroad_dataset/wetness_data.pkl'
 
@@ -84,19 +85,24 @@ else:
     ts_features,ts_labels = extract_features(parent_dir,ts_sub_dirs, label_names=label_names)
     ts_labels = one_hot_encode(ts_labels)
 
+print('Data shapes: train/test  data/lbl', tr_features.shape, tr_labels.shape, ts_features.shape, ts_labels.shape)
+
 # Pickling data for the future
 if not os.path.isfile(prepickled_data_filename):
     print('Saving data to %s ...' % prepickled_data_filename)
     data_dic = {'tr_features': tr_features, 'tr_labels': tr_labels,
                 'ts_features': ts_features, 'ts_labels': ts_labels}
-    print('Loading pickled data %s ...' % prepickled_data_filename)
-    with open(prepickled_data_filename, 'wb') as output_pkl:
-        # Pickle dictionary using protocol 0.
-        pickle.dump(data_dic, output_pkl)
+    try:
+        with open(prepickled_data_filename, 'wb') as output_pkl:
+            # Pickle dictionary using protocol 0.
+            pickle.dump(data_dic, output_pkl)
+    except Exception as e:
+        os.remove(prepickled_data_filename)
+        raise
 
 
 
-
+print('Constructin NN graph ...')
 #####################################################
 ## Contructing NN
 tf.reset_default_graph()
@@ -110,17 +116,18 @@ display_step = 200
 n_input = 20
 n_steps = 41
 n_hidden = 300
-n_classes = 10
+n_classes = len(label_names)
 
-x = tf.placeholder("float", [None, n_steps, n_input])
-y = tf.placeholder("float", [None, n_classes])
+x = tf.placeholder(tf.float32, name="x", shape=[None, n_steps, n_input])
+y = tf.placeholder(tf.float32, name="y", shape=[None, n_classes])
 
 weight = tf.Variable(tf.random_normal([n_hidden, n_classes]))
 bias = tf.Variable(tf.random_normal([n_classes]))
 
 def RNN(x, weight, bias):
-    cell = rnn_cell.LSTMCell(n_hidden,state_is_tuple = True)
-    cell = rnn_cell.MultiRNNCell([cell] * 2)
+    cell1 = rnn_cell.LSTMCell(n_hidden, state_is_tuple = True)
+    cell2 = rnn_cell.LSTMCell(n_hidden, state_is_tuple=True)
+    cell = rnn_cell.MultiRNNCell([cell1, cell2])
     output, state = tf.nn.dynamic_rnn(cell, x, dtype = tf.float32)
     output = tf.transpose(output, [1, 0, 2])
     last = tf.gather(output, int(output.get_shape()[0]) - 1)
@@ -151,13 +158,13 @@ with tf.Session() as session:
         batch_y = tr_labels[offset:(offset + batch_size), :]
         _, c = session.run([optimizer, loss_f], feed_dict={x: batch_x, y: batch_y})
 
-        if epoch % display_step == 0:
+        if itr % display_step == 0:
             # Calculate batch accuracy
             acc = session.run(accuracy, feed_dict={x: batch_x, y: batch_y})
             # Calculate batch loss
             loss = session.run(loss_f, feed_dict={x: batch_x, y: batch_y})
             print
-            "Iter " + str(epoch) + ", Minibatch Loss= " + \
+            "Iter " + str(itr) + ", Minibatch Loss= " + \
             "{:.6f}".format(loss) + ", Training Accuracy= " + \
             "{:.5f}".format(acc)
 
