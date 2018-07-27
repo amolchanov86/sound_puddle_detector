@@ -1,0 +1,8 @@
+.idea
+__pycache__
+cmake-build-debug
+*~
+*build*
+_data
+_results_temp
+*.swp
