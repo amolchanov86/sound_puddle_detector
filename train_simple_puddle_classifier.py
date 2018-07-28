@@ -86,6 +86,16 @@ else:
     ts_labels = one_hot_encode(ts_labels)
 
 print('Data shapes: train/test  data/lbl', tr_features.shape, tr_labels.shape, ts_features.shape, ts_labels.shape)
+if np.any(np.isnan(tr_features)) or not np.all(np.isfinite(tr_features)):
+    raise ValueError('Data contains nan or inf features ...')
+print('Shuffling data ...')
+def unison_shuffle(a, b):
+    assert len(a) == len(b)
+    p = np.random.permutation(len(a))
+    return a[p], b[p]
+tr_features,tr_labels = unison_shuffle(tr_features,tr_labels)
+print('Data shapes after shuffling: train/test  data/lbl', tr_features.shape, tr_labels.shape, ts_features.shape, ts_labels.shape)
+print('Labels: ', tr_labels)
 
 # Pickling data for the future
 if not os.path.isfile(prepickled_data_filename):
@@ -107,10 +117,13 @@ print('Constructin NN graph ...')
 ## Contructing NN
 tf.reset_default_graph()
 
-learning_rate = 0.01
-training_iters = 1000
+learning_rate = 0.001
 batch_size = 50
 display_step = 200
+tr_examples_num = tr_features.shape[0]
+epoch_size = int(np.ceil(tr_examples_num / batch_size))
+epochs_num = 100
+training_iters = epoch_size
 
 # Network Parameters
 n_input = 20
@@ -152,20 +165,21 @@ init = tf.global_variables_initializer()
 with tf.Session() as session:
     session.run(init)
 
-    for itr in range(training_iters):
-        offset = (itr * batch_size) % (tr_labels.shape[0] - batch_size)
-        batch_x = tr_features[offset:(offset + batch_size), :, :]
-        batch_y = tr_labels[offset:(offset + batch_size), :]
-        _, c = session.run([optimizer, loss_f], feed_dict={x: batch_x, y: batch_y})
+    for epoch in range(epochs_num):
+        for itr in tqdm(range(training_iters), desc='Epoch %d' % int(epoch)):
+            offset = (itr * batch_size) % (tr_labels.shape[0] - batch_size)
+            batch_x = tr_features[offset:(offset + batch_size), :, :]
+            batch_y = tr_labels[offset:(offset + batch_size), :]
+            _, c = session.run([optimizer, loss_f], feed_dict={x: batch_x, y: batch_y})
 
-        if itr % display_step == 0:
-            # Calculate batch accuracy
-            acc = session.run(accuracy, feed_dict={x: batch_x, y: batch_y})
-            # Calculate batch loss
-            loss = session.run(loss_f, feed_dict={x: batch_x, y: batch_y})
-            print
-            "Iter " + str(itr) + ", Minibatch Loss= " + \
-            "{:.6f}".format(loss) + ", Training Accuracy= " + \
-            "{:.5f}".format(acc)
+            if itr % display_step == 0:
+                # Calculate batch accuracy
+                acc = session.run(accuracy, feed_dict={x: batch_x, y: batch_y})
+                # Calculate batch loss
+                loss = session.run(loss_f, feed_dict={x: batch_x, y: batch_y})
+                print(
+                "Iter " + str(itr) + ", Minibatch Loss= " + \
+                "{:.6f}".format(loss) + ", Training Accuracy= " + \
+                "{:.5f}".format(acc))
 
-    print('Test accuracy: ', round(session.run(accuracy, feed_dict={x: ts_features, y: ts_labels}), 3))
+        print('Test accuracy: ', round(session.run(accuracy, feed_dict={x: ts_features, y: ts_labels}), 3))
