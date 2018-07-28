@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import pickle
 import glob
 import os
@@ -156,6 +157,7 @@ optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss_
 # Evaluate model
 correct_pred = tf.equal(tf.argmax(prediction,1), tf.argmax(y,1))
 accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+meanIOU = tf.metrics.mean_iou(tf.argmax(y, axis=1), tf.argmax(prediction, axis=1), n_classes, name='iou')
 
 
 #####################################################
@@ -182,4 +184,4 @@ with tf.Session() as session:
                 "{:.6f}".format(loss) + ", Training Accuracy= " + \
                 "{:.5f}".format(acc))
 
-        print('Test accuracy: ', round(session.run(accuracy, feed_dict={x: ts_features, y: ts_labels}), 3))
+        print('Test accuracy / mean IoU: ', round(session.run([accuracy, meanIOU], feed_dict={x: ts_features, y: ts_labels}), 3))
