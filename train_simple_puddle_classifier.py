@@ -139,11 +139,26 @@ weight = tf.Variable(tf.random_normal([n_hidden, n_classes]))
 bias = tf.Variable(tf.random_normal([n_classes]))
 
 def RNN(x, weight, bias):
-    cell1 = rnn_cell.LSTMCell(n_hidden, state_is_tuple = True)
+    cell1 = rnn_cell.LSTMCell(n_hidden, state_is_tuple=True)
     cell2 = rnn_cell.LSTMCell(n_hidden, state_is_tuple=True)
     cell = rnn_cell.MultiRNNCell([cell1, cell2])
     output, state = tf.nn.dynamic_rnn(cell, x, dtype = tf.float32)
     output = tf.transpose(output, [1, 0, 2])
+    last = tf.gather(output, int(output.get_shape()[0]) - 1)
+    return tf.nn.softmax(tf.matmul(last, weight) + bias)
+
+def BRNN(x, weight, bias):
+    cell1_fw = rnn_cell.LSTMCell(n_hidden, state_is_tuple=True)
+    cell2_fw = rnn_cell.LSTMCell(n_hidden, state_is_tuple=True)
+    cell_fw = rnn_cell.MultiRNNCell([cell1_fw, cell2_fw])
+
+    cell1_bw = rnn_cell.LSTMCell(n_hidden, state_is_tuple=True)
+    cell2_bw = rnn_cell.LSTMCell(n_hidden, state_is_tuple=True)
+    cell_bw = rnn_cell.MultiRNNCell([cell1_bw, cell2_bw])
+
+    output, out_states = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, x, dtype = tf.float32)
+    # print(output[-1].get_shape().as_list())
+    output = tf.transpose(output[-1], [1, 0, 2])
     last = tf.gather(output, int(output.get_shape()[0]) - 1)
     return tf.nn.softmax(tf.matmul(last, weight) + bias)
 
