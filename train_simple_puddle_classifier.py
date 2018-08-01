@@ -94,9 +94,9 @@ def unison_shuffle(a, b):
     assert len(a) == len(b)
     p = np.random.permutation(len(a))
     return a[p], b[p]
-tr_features,tr_labels = unison_shuffle(tr_features,tr_labels)
-print('Data shapes after shuffling: train/test  data/lbl', tr_features.shape, tr_labels.shape, ts_features.shape, ts_labels.shape)
-print('Labels: ', tr_labels)
+# tr_features,tr_labels = unison_shuffle(tr_features,tr_labels)
+# print('Data shapes after shuffling: train/test  data/lbl', tr_features.shape, tr_labels.shape, ts_features.shape, ts_labels.shape)
+# print('Labels: ', tr_labels)
 
 # Pickling data for the future
 if not os.path.isfile(prepickled_data_filename):
@@ -163,25 +163,37 @@ meanIOU = tf.metrics.mean_iou(tf.argmax(y, axis=1), tf.argmax(prediction, axis=1
 #####################################################
 # Initializing the variables
 init = tf.global_variables_initializer()
+#IoU uses local variables (i.e. variables for temporary data)
+local_init = tf.local_variables_initializer()
 
 with tf.Session() as session:
     session.run(init)
+    session.run(local_init)
 
     for epoch in range(epochs_num):
+        training_accuracy_vec = []
+        training_loss_vec = []
+
+        tr_features, tr_labels = unison_shuffle(tr_features, tr_labels)
+        # print('Data shapes after shuffling: train/test  data/lbl', tr_features.shape, tr_labels.shape,
+        #       ts_features.shape, ts_labels.shape)
+        # print('Labels: ', tr_labels)
+
         for itr in tqdm(range(training_iters), desc='Epoch %d' % int(epoch)):
             offset = (itr * batch_size) % (tr_labels.shape[0] - batch_size)
             batch_x = tr_features[offset:(offset + batch_size), :, :]
             batch_y = tr_labels[offset:(offset + batch_size), :]
-            _, c = session.run([optimizer, loss_f], feed_dict={x: batch_x, y: batch_y})
+            _, train_loss_val, train_acc_val = session.run([optimizer, loss_f, accuracy], feed_dict={x: batch_x, y: batch_y})
+            training_accuracy_vec.append(train_acc_val)
+            training_loss_vec.append(train_loss_val)
 
-            if itr % display_step == 0:
-                # Calculate batch accuracy
-                acc = session.run(accuracy, feed_dict={x: batch_x, y: batch_y})
-                # Calculate batch loss
-                loss = session.run(loss_f, feed_dict={x: batch_x, y: batch_y})
-                print(
-                "Iter " + str(itr) + ", Minibatch Loss= " + \
-                "{:.6f}".format(loss) + ", Training Accuracy= " + \
-                "{:.5f}".format(acc))
+        acc = np.mean(training_accuracy_vec)
+        # Calculate batch loss
+        loss = np.mean(training_loss_vec)
+        print( "Iter " + str(itr) + ", Minibatch Loss= " + \
+        "{:.6f}".format(loss) + ", Training Accuracy= " + \
+        "{:.5f}".format(acc))
 
-        print('Test accuracy / mean IoU: ', round(session.run([accuracy, meanIOU], feed_dict={x: ts_features, y: ts_labels}), 3))
+        test_results = session.run([accuracy, meanIOU], feed_dict={x: ts_features, y: ts_labels})
+        #NOTE: iou returns a tupple (meanIoU, confusion_matrix)
+        print('Test accuracy: %5.3f / mean IoU: %5.3f ' % (test_results[0], test_results[1][0]))
