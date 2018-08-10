@@ -13,5 +13,5 @@ find_package(Threads REQUIRED)
 add_executable(example_calsa_mic_recording example_calsa_mic_recording.c)
 target_link_libraries(example_calsa_mic_recording ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${ALSA_LIBRARIES})
 
-add_executable(${PROJECT_NAME} micread_thread.cpp)
+add_executable(${PROJECT_NAME} micread_main.cpp micread_thread.cpp)
 target_link_libraries(${PROJECT_NAME} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${ALSA_LIBRARIES})
