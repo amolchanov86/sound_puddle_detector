@@ -17,42 +17,73 @@
 // ALSA
 #include <alsa/asoundlib.h>
 
+
+#define MICREAD_DEF_FRAME_SIZE 128
+#define MICREAD_DEF_RATE 44100
+#define MICREAD_DEF_DEVICE "hw:0,0"
+#define MICREAD_DEF_NAME "MicRead"
+
+struct micDataStamped
+{
+    __int64 timestamp; //milliseconds time stamp
+    std::vector<char> frame; //mic data itself
+};
+
 class MicReadAlsa
 {
-    std::mutex mtx_;
-    std::condition_variable cv_;
+public:
+    MicReadAlsa(
+        bool delayed_start=false,
+        std::string device=MICREAD_DEF_DEVICE,
+        int buffer_frames=MICREAD_DEF_FRAME_SIZE,
+        unsigned int rate=MICREAD_DEF_RATE,
+        snd_pcm_format_t format=SND_PCM_FORMAT_S16_LE,
+        std::string name=MICREAD_DEF_NAME);
+    ~MicReadAlsa();
 
-    bool run_fl_;
-    bool ready_fl_;
-    std::string name_;
-    std::thread th_;
+    //--- Device handling
+    //If constructor fails to open the device, use this function manually
+    int openDevice(std::string device=MICREAD_DEF_DEVICE,
+                   int buffer_frames=MICREAD_DEF_FRAME_SIZE,
+                   unsigned int rate=MICREAD_DEF_RATE);
+
+    //--- Thread handling
+    void start(); //Starts the reading thread (if delayed_start is not set in the constructor the threads starts automatically)
+    void pause(); //Pauses the thread. Use start() to restart it
+    void finish(); //Closes the thread completely
+    bool isRunning() const {return run_fl_;} //checks if the thread is still running
+
+    //--- Data handling
+    std::vector<micDataStamped> data; //Direct data access - unsafe !!!
+
+    // The function locks the mutex, moves the data and clears the main buffer
+    // This is a safe way to access data
+    std::vector<micDataStamped> getData();
+
+private:
+    std::mutex mtx_; //thread pause mutex
+    std::condition_variable cv_;
+    std::mutex data_mtx_;
+
+    bool run_fl_; //pause flag
+    bool ready_fl_; //thread alive flag (not exited)
+    std::string name_; //object name (for messaging)
+    std::thread th_; //reading thread
 
     int buffer_frames_; //128 default
     unsigned int rate_; //44100 default
 
     // ALSA stuff
-    char *buffer_;
+    char *buffer_; //temporary data buffer for ALSA
     snd_pcm_t *capture_handle_;
-    std::string device_;
+    std::string device_; //Devices are in the format: "hw:X,Y", where X - card #, Y - device #. Both are int
     snd_pcm_hw_params_t *hw_params_;
     snd_pcm_format_t format_;
 
-    void run();
-
-public:
-    MicReadAlsa(
-        bool delayed_start=false,
-        std::string device="hw:0,0",
-        int buffer_frames=128,
-        unsigned int rate=44100);
-    ~MicReadAlsa();
-
-    int openDevice();
-    void start();
-    void pause();
-    void finish();
-    bool isRunning() const {return run_fl_;}
+    void run(); //Thread functions
 
 };
+
+
 
 #endif //MIC_READ_THREAD_MICREAD_THREAD_HPP

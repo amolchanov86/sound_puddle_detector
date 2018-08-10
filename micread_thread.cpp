@@ -3,13 +3,13 @@
 // My libs
 #include "micread_thread.hpp"
 
-MicReadAlsa::MicReadAlsa(bool delayed_start, std::string device, int buffer_frames, unsigned int rate):
+MicReadAlsa::MicReadAlsa(bool delayed_start, std::string device, int buffer_frames, unsigned int rate, snd_pcm_format_t format, std::string name):
     run_fl_(false),
     ready_fl_(true),
-    name_("MicReader"),
+    name_(name),
     buffer_frames_(buffer_frames),
     rate_(rate),
-    format_(SND_PCM_FORMAT_S16_LE),
+    format_(format),
     device_(device),
     buffer_(nullptr)
 {
@@ -33,11 +33,13 @@ MicReadAlsa::~MicReadAlsa() {
         // Waiting for the thread to finish
         finish();
     }
+    if(buffer_ != nullptr) {
+        delete[] buffer_;
+    }
 }
 
 void MicReadAlsa::run() {
     int err; //Reporting ALSA errors
-//    buffer_ = malloc(128 * snd_pcm_format_width(format_) / 8 * 2);
     buffer_ = new char[128 * snd_pcm_format_width(format_) / 8 * 2];
 
     printf("%s: Thread ready ...\n", name_.c_str());
@@ -64,20 +66,37 @@ void MicReadAlsa::run() {
                     name_.c_str(),
                     snd_strerror(err));
         }
+        // Copy data to my buffer
+        else {
+            if(data_mtx_.try_lock())
+            {
+                std::vector<micDataStamped> frame_stamped;
 
-        // Test reading
-        for (int i = 0; i < buffer_frames_; i++)
-        {
-            printf("%d ", buffer_[i]);
+                //Creating a timestamp
+                __int64 timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()
+                );
+                frame_stamped.timestamp = timestamp;
+
+                //Copying data from the temporary buffer
+                for (int i = 0; i < buffer_frames_; i++)
+                {
+                    frame_stamped.frame.push_back(buffer_[i]);
+                }
+
+                //Push data to the main data buffer
+                data.push_back(frame_stamped);
+
+                data_mtx_.unlock();
+            }
         }
-        printf("\n");
 
     }
 
     // Cleaning, closing
-//    free(buffer_);
     delete[] buffer_;
     buffer_ = nullptr;
+
     snd_pcm_close (capture_handle_);
     fprintf(stdout, "%s: Audio interface closed\n", name_.c_str());
 
@@ -105,9 +124,22 @@ void MicReadAlsa::finish() {
 }
 
 
-int MicReadAlsa::openDevice() {
+int MicReadAlsa::openDevice(std::string device=MICREAD_DEF_DEVICE,
+                            int buffer_frames=MICREAD_DEF_FRAME_SIZE,
+                            unsigned int rate=MICREAD_DEF_RATE) {
+
+    bool restart = false;
+    if (run_fl_) {
+        pause();
+        restart = true;
+    }
+
     int i;
     int err;
+
+    device_ = device;
+    rate_ = rate;
+    buffer_frames_ = buffer_frames;
 
     if ((err = snd_pcm_open (&capture_handle_, device_.c_str(), SND_PCM_STREAM_CAPTURE, 0)) < 0) {
         fprintf (stderr, "%s: ERROR: cannot open audio device %s (%s)\n",
@@ -193,6 +225,15 @@ int MicReadAlsa::openDevice() {
     }
     fprintf(stdout, "%s: Audio interface prepared\n", name_.c_str());
 
+    if(restart){
+        start();
+    }
     return 0;
 }
 
+std::vector<micDataStamped> MicReadAlsa::getData(){
+    data_mtx_.lock();
+    std::vector<micDataStamped> data_temp = std::move(data); //After moving the data vector should be empty
+    data_mtx_.unlock();
+    return data_temp; //Theoretically should return by rval since C11 to avoid copying
+}
