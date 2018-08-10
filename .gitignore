@@ -2,7 +2,7 @@
 __pycache__
 cmake-build-debug
 *~
-*build*
+build
 _data
 _results_temp
 *.swp
