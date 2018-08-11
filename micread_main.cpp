@@ -15,13 +15,13 @@
 
 int main()
 {
-    MicReadAlsa mic_reader(true);
+    MicReadAlsa mic_reader(true); //first parameter == wait until user call start()
     mic_reader.start();
 
     int iterations = 10;
 
     for(int i=0; i<iterations; i++){
-        //10ms in my case was sort of optimal
+        //10ms in my case was sort of optimal, i.e. it spits one frame per step
         std::this_thread::sleep_for (std::chrono::milliseconds(10));
         std::cout << mic_reader.getData();
         std::cout << std::flush;

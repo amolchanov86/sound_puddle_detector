@@ -1,9 +1,6 @@
-// Standart stuff
-
-// My libs
 #include "micread_thread.hpp"
 
-MicReadAlsa::MicReadAlsa(bool delayed_start, std::string device, int buffer_frames, unsigned int rate, snd_pcm_format_t format, std::string name):
+MicReadAlsa::MicReadAlsa(bool manual_start, std::string device, int buffer_frames, unsigned int rate, snd_pcm_format_t format, std::string name):
     run_fl_(false),
     ready_fl_(true),
     name_(name),
@@ -22,9 +19,7 @@ MicReadAlsa::MicReadAlsa(bool delayed_start, std::string device, int buffer_fram
     }
     th_ = std::thread(&MicReadAlsa::run, this);
 
-    //Waiting for a millisecond to allow device initialization to complete
-//    std::this_thread::sleep_for (std::chrono::milliseconds(10));
-    if(!delayed_start) {
+    if(!manual_start) {
         start();
     }
 }
@@ -64,9 +59,6 @@ void MicReadAlsa::run() {
             std::unique_lock<std::mutex> lck(mtx_);
             cv_.wait(lck);
         }
-        // Test without ALSA
-        //printf("%s: Running ...\n", name_.c_str());
-        //std::this_thread::sleep_for (std::chrono::seconds(1));
 
         // ALSA
         if ((err = snd_pcm_readi(capture_handle_, buffer_, buffer_frames_)) != buffer_frames_)
