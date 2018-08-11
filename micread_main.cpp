@@ -28,10 +28,13 @@ int main()
     }
 
     // Testing pause functionality
+    printf("Trying to pause thread ...\n");
     mic_reader.pause();
     std::this_thread::sleep_for (std::chrono::milliseconds(1000));
     mic_reader.start();
 
+    // Testing resuming
+    printf("Trying to resume thread ...\n");
     for(int i=0; i<iterations; i++){
         //10ms in my case was sort of optimal
         std::this_thread::sleep_for (std::chrono::milliseconds(10));

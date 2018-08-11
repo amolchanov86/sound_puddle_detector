@@ -22,6 +22,8 @@ MicReadAlsa::MicReadAlsa(bool delayed_start, std::string device, int buffer_fram
     }
     th_ = std::thread(&MicReadAlsa::run, this);
 
+    //Waiting for a millisecond to allow device initialization to complete
+//    std::this_thread::sleep_for (std::chrono::milliseconds(10));
     if(!delayed_start) {
         start();
     }
@@ -50,7 +52,7 @@ void MicReadAlsa::run() {
         if(!run_fl_){
             int pause_err = snd_pcm_pause(capture_handle_, 1);
             if(pause_err){
-                printf("%s: ERROR: Failed to pause device %s: %s \n",
+                fprintf(stderr, "%s: WARNING: Failed to pause device %s: %s \n",
                        name_.c_str(),
                        device_.c_str(),
                        snd_strerror(pause_err));
@@ -118,7 +120,7 @@ void MicReadAlsa::start() {
     run_fl_ = true;
     int err = snd_pcm_pause(capture_handle_, 0);
     if(err){
-        printf("%s: ERROR: Failed to resume device %s: %s\n",
+        fprintf(stderr, "%s: WARNING: Failed to resume device %s: %s\n",
                name_.c_str(),
                device_.c_str(),
                snd_strerror(err));
