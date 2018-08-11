@@ -24,7 +24,7 @@ int main()
         //10ms in my case was sort of optimal, i.e. it spits one frame per step
         std::this_thread::sleep_for (std::chrono::milliseconds(10));
         std::cout << mic_reader.getData();
-        std::cout << std::flush;
+        std::cout << "Freq: " << mic_reader.getFreq() << std::endl << std::flush;
     }
 
     // Testing pause functionality
@@ -39,7 +39,7 @@ int main()
         //10ms in my case was sort of optimal
         std::this_thread::sleep_for (std::chrono::milliseconds(10));
         std::cout << mic_reader.getData();
-        std::cout << std::flush;
+        std::cout << "Freq: " << mic_reader.getFreq() << std::endl << std::flush;
     }
 
 

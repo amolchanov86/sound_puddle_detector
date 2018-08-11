@@ -73,6 +73,7 @@ public:
     // The function locks the mutex, moves the data and clears the main buffer
     // This is a safe way to access data
     std::vector<micDataStamped> getData();
+    double getFreq() const {return freq_;}; //Frequency of data reading
 
     std::vector<micDataStamped> data; //Direct data access - unsafe. Better use getData() !!!
 
@@ -103,6 +104,7 @@ protected:
     snd_pcm_format_t format_;
 
     void run(); //Thread functions
+    double freq_;
 
 };
 

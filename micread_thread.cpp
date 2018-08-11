@@ -8,7 +8,8 @@ MicReadAlsa::MicReadAlsa(bool manual_start, std::string device, int buffer_frame
     rate_(rate),
     format_(format),
     device_(device),
-    buffer_(nullptr)
+    buffer_(nullptr),
+    freq_(0.0)
 {
     if(openDevice() < 0){
         fprintf(stderr,"%s: ERROR: Failed to open device %s. Please openDevice() manually and start() the thread ...\n",
@@ -38,6 +39,12 @@ MicReadAlsa::~MicReadAlsa() {
 void MicReadAlsa::run() {
     int err; //Reporting ALSA errors
     buffer_ = new char[buffer_frames_ * snd_pcm_format_width(format_) / 8 * 2];
+
+    //Time to measure freq
+    auto time_prev = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    );
+    long int frames_since_last = 0;
 
     printf("%s: Thread ready ...\n", name_.c_str());
 
@@ -74,7 +81,7 @@ void MicReadAlsa::run() {
                 micDataStamped frame_stamped;
 
                 //Creating a timestamp
-                auto time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                auto time = std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::system_clock::now().time_since_epoch()
                 );
                 long timestamp = time.count(); //count milliseconds
@@ -85,6 +92,10 @@ void MicReadAlsa::run() {
                 {
                     frame_stamped.frame.push_back(buffer_[i]);
                 }
+
+                //Calculating freq
+                freq_ = (double)buffer_frames_ / (double)(time - time_prev).count() * 1000000.0;
+                time_prev = time;
 
                 //Push data to the main data buffer
                 data.push_back(frame_stamped);
