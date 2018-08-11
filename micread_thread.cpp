@@ -48,6 +48,7 @@ void MicReadAlsa::run() {
     {
         // Pause functionality
         if(!run_fl_){
+            snd_pcm_pause(capture_handle_, 1);
             printf("%s: Thread is paused ...\n",  name_.c_str());
             // First, waiting until we give permission to start running
             // See explanation of using mutex together with condvar
@@ -109,10 +110,12 @@ void MicReadAlsa::start() {
     std::unique_lock<std::mutex> lck(mtx_);
     ready_fl_ = true;
     run_fl_ = true;
+    snd_pcm_pause(capture_handle_, 0);
     cv_.notify_all();
 }
 
 void MicReadAlsa::pause() {
+    std::unique_lock<std::mutex> lck(mtx_);
     run_fl_ = false;
 }
 

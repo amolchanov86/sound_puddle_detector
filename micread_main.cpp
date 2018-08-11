@@ -18,7 +18,7 @@ int main()
     MicReadAlsa mic_reader(true);
     mic_reader.start();
 
-    int iterations = 100;
+    int iterations = 10;
 
     for(int i=0; i<iterations; i++){
         //10ms in my case was sort of optimal
@@ -27,6 +27,20 @@ int main()
         std::cout << std::flush;
     }
 
-    mic_reader.finish();
+    // Testing pause functionality
+    mic_reader.pause();
+    std::this_thread::sleep_for (std::chrono::milliseconds(1000));
+    mic_reader.start();
+
+    for(int i=0; i<iterations; i++){
+        //10ms in my case was sort of optimal
+        std::this_thread::sleep_for (std::chrono::milliseconds(10));
+        std::cout << mic_reader.getData();
+        std::cout << std::flush;
+    }
+
+
+    // One does not have to call finish() since destructor will do the same job
+    //mic_reader.finish();
     return 0;
 }
