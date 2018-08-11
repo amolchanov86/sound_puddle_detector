@@ -48,7 +48,13 @@ void MicReadAlsa::run() {
     {
         // Pause functionality
         if(!run_fl_){
-            snd_pcm_pause(capture_handle_, 1);
+            int pause_err = snd_pcm_pause(capture_handle_, 1);
+            if(pause_err){
+                printf("%s: ERROR: Failed to pause device %s: %s \n",
+                       name_.c_str(),
+                       device_.c_str(),
+                       snd_strerror(pause_err));
+            }
             printf("%s: Thread is paused ...\n",  name_.c_str());
             // First, waiting until we give permission to start running
             // See explanation of using mutex together with condvar
@@ -110,7 +116,13 @@ void MicReadAlsa::start() {
     std::unique_lock<std::mutex> lck(mtx_);
     ready_fl_ = true;
     run_fl_ = true;
-    snd_pcm_pause(capture_handle_, 0);
+    int err = snd_pcm_pause(capture_handle_, 0);
+    if(err){
+        printf("%s: ERROR: Failed to resume device %s: %s\n",
+               name_.c_str(),
+               device_.c_str(),
+               snd_strerror(err));
+    }
     cv_.notify_all();
 }
 
