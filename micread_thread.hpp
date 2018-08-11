@@ -7,6 +7,8 @@
 #include <iostream>
 #include <cstdio>
 #include <string>
+#include <inttypes.h>
+#include <vector>
 
 // Thread handling
 #include <chrono>
@@ -18,14 +20,14 @@
 #include <alsa/asoundlib.h>
 
 
-#define MICREAD_DEF_FRAME_SIZE 128
+#define MICREAD_DEF_FRAME_SIZE 512 //Smaller buffers resulted in the same millisecond time stamp
 #define MICREAD_DEF_RATE 44100
 #define MICREAD_DEF_DEVICE "hw:0,0"
 #define MICREAD_DEF_NAME "MicRead"
 
 struct micDataStamped
 {
-    __int64 timestamp; //milliseconds time stamp
+    int64_t timestamp; //milliseconds time stamp
     std::vector<char> frame; //mic data itself
 };
 
@@ -84,6 +86,9 @@ private:
 
 };
 
+std::ostream& operator<<(std::ostream& os, const std::vector<char>& data);
+std::ostream& operator<<(std::ostream& os, const std::vector<micDataStamped>& data);
+std::ostream& operator<<(std::ostream& os, const micDataStamped& data);
 
 
 #endif //MIC_READ_THREAD_MICREAD_THREAD_HPP

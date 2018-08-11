@@ -40,7 +40,7 @@ MicReadAlsa::~MicReadAlsa() {
 
 void MicReadAlsa::run() {
     int err; //Reporting ALSA errors
-    buffer_ = new char[128 * snd_pcm_format_width(format_) / 8 * 2];
+    buffer_ = new char[buffer_frames_ * snd_pcm_format_width(format_) / 8 * 2];
 
     printf("%s: Thread ready ...\n", name_.c_str());
 
@@ -70,12 +70,13 @@ void MicReadAlsa::run() {
         else {
             if(data_mtx_.try_lock())
             {
-                std::vector<micDataStamped> frame_stamped;
+                micDataStamped frame_stamped;
 
                 //Creating a timestamp
-                __int64 timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                auto time = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()
                 );
+                long timestamp = time.count(); //count milliseconds
                 frame_stamped.timestamp = timestamp;
 
                 //Copying data from the temporary buffer
@@ -124,9 +125,9 @@ void MicReadAlsa::finish() {
 }
 
 
-int MicReadAlsa::openDevice(std::string device=MICREAD_DEF_DEVICE,
-                            int buffer_frames=MICREAD_DEF_FRAME_SIZE,
-                            unsigned int rate=MICREAD_DEF_RATE) {
+int MicReadAlsa::openDevice(std::string device,
+                            int buffer_frames,
+                            unsigned int rate) {
 
     bool restart = false;
     if (run_fl_) {
@@ -148,7 +149,7 @@ int MicReadAlsa::openDevice(std::string device=MICREAD_DEF_DEVICE,
                  snd_strerror (err));
         return -1;
     }
-    fprintf(stdout, "%s : Audio interface opened\n", name_.c_str());
+    fprintf(stdout, "%s: Audio interface opened\n", name_.c_str());
 
 
     if ((err = snd_pcm_hw_params_malloc (&hw_params_)) < 0) {
@@ -157,7 +158,7 @@ int MicReadAlsa::openDevice(std::string device=MICREAD_DEF_DEVICE,
                  snd_strerror (err));
         return -2;
     }
-    fprintf(stdout, "%s : hw_params allocated\n", name_.c_str());
+    fprintf(stdout, "%s: hw_params allocated\n", name_.c_str());
 
 
     if ((err = snd_pcm_hw_params_any (capture_handle_, hw_params_)) < 0) {
@@ -205,7 +206,7 @@ int MicReadAlsa::openDevice(std::string device=MICREAD_DEF_DEVICE,
 
 
     if ((err = snd_pcm_hw_params (capture_handle_, hw_params_)) < 0) {
-        fprintf (stderr, "%s : ERROR: Cannot set parameters (%s)\n",
+        fprintf (stderr, "%s: ERROR: Cannot set parameters (%s)\n",
                  name_.c_str(),
                  snd_strerror (err));
         return -8;
@@ -237,3 +238,31 @@ std::vector<micDataStamped> MicReadAlsa::getData(){
     data_mtx_.unlock();
     return data_temp; //Theoretically should return by rval since C11 to avoid copying
 }
+
+
+std::ostream& operator<<(std::ostream& os, const std::vector<char>& data){
+    for(int i=0; i<data.size(); i++) {
+        std::cout<<(int)data[i]<<" ";
+    }
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const micDataStamped& data){
+    os << "Timestamp: " << data.timestamp << std::endl;
+    os << "Data: " << data.frame << std::endl;
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const std::vector<micDataStamped>& data){
+    if(data.empty()){
+        os << "Empty !!!" << std::endl;
+        return os;
+    }
+    for(int i=0; i<data.size(); i++) {
+        os << "Frame " << i << ":" << std::endl;
+        os << "\t Timestamp: " << data[i].timestamp << std::endl;
+        os << "\t Data: " << data[i].frame << std::endl;
+    }
+    return os;
+}
+
