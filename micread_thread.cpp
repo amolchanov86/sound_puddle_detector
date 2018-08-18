@@ -32,8 +32,8 @@ MicReadAlsa::MicReadAlsa(bool manual_start,
     bits_per_sample_ = snd_pcm_format_width(format_);
     if(openDevice() < 0){
         fprintf(stderr,"%s: ERROR: Failed to open device %s. Please openDevice() manually and start() the thread ...\n",
-        name_.c_str(),
-        device_.c_str());
+                name_.c_str(),
+                device_.c_str());
 
         ready_fl_ = false;
     }
@@ -82,12 +82,12 @@ MicReadAlsa::~MicReadAlsa() {
 
 int8_t* swap_endian(int8_t* value, int size)
 {
-  int8_t buf;
-  for (int i=0; i<size/2; i++) {
-      buf = value[i];
-      value[i] = value[size-i-1];
-      value[size-i-1] = buf;
-  }
+    int8_t buf;
+    for (int i=0; i<size/2; i++) {
+        buf = value[i];
+        value[i] = value[size-i-1];
+        value[size-i-1] = buf;
+    }
 }
 
 void MicReadAlsa::run() {
@@ -97,8 +97,8 @@ void MicReadAlsa::run() {
 
     //Time to measure freq
     auto time_prev = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::system_clock::now().time_since_epoch()
-    );
+                std::chrono::system_clock::now().time_since_epoch()
+                );
     long int frames_since_last = 0;
 
     printf("%s: Reading Thread ready ...\n", name_.c_str());
@@ -110,9 +110,9 @@ void MicReadAlsa::run() {
             int pause_err = snd_pcm_pause(capture_handle_, 1);
             if(pause_err){
                 fprintf(stderr, "%s: WARNING: Failed to pause device %s: %s \n",
-                       name_.c_str(),
-                       device_.c_str(),
-                       snd_strerror(pause_err));
+                        name_.c_str(),
+                        device_.c_str(),
+                        snd_strerror(pause_err));
             }
             printf("%s: Thread is paused ...\n",  name_.c_str());
             // First, waiting until we give permission to start running
@@ -137,17 +137,17 @@ void MicReadAlsa::run() {
 
                 //Creating a timestamp
                 auto time = std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()
-                );
+                            std::chrono::system_clock::now().time_since_epoch()
+                            );
                 long timestamp = time.count(); //count milliseconds
                 frame_stamped.timestamp = timestamp;
 
                 //Copying data from the temporary buffer
-//                int bytes_per_sample = bits_per_sample_ / 8;
-//                for (int i = 0; i < buffer_frames_ * channels_ * bytes_per_sample; i++)
-//                {
-//                    frame_stamped.frame.push_back(buffer_[i]);
-//                }
+                //                int bytes_per_sample = bits_per_sample_ / 8;
+                //                for (int i = 0; i < buffer_frames_ * channels_ * bytes_per_sample; i++)
+                //                {
+                //                    frame_stamped.frame.push_back(buffer_[i]);
+                //                }
 
                 //A bit more general version, but still for a single channel
                 int i_incr = channels_* bits_per_sample_ / 8;
@@ -189,9 +189,9 @@ void MicReadAlsa::start() {
     int err = snd_pcm_pause(capture_handle_, 0);
     if(err){
         fprintf(stderr, "%s: WARNING: Failed to resume device %s: %s\n",
-               name_.c_str(),
-               device_.c_str(),
-               snd_strerror(err));
+                name_.c_str(),
+                device_.c_str(),
+                snd_strerror(err));
     }
     cv_.notify_all();
 }
@@ -206,7 +206,7 @@ void MicReadAlsa::pause() {
 void MicReadAlsa::finish() {
     cv_.notify_all();
     ready_fl_ = false;
-//    run_fl_ = false;
+    //    run_fl_ = false;
     printf("%s : Waiting for the reading thread to finish ...\n", name_.c_str());
     th_.join();
     if(record_){
@@ -360,17 +360,30 @@ std::ostream& operator<<(std::ostream& os, const std::vector<micDataStamped>& da
 //-----------------------------------------------------------------
 //RECORDING RELATED STUFF
 
-namespace little_endian_io
+
+template <typename Word>
+std::ostream& write_word(std::ostream& outs, Word value)
 {
-  template <typename Word>
-  std::ostream& write_word( std::ostream& outs, Word value, unsigned size = sizeof( Word ) )
-  {
-    for (; size; --size, value >>= 8)
-      outs.put( static_cast <char> (value & 0xFF) );
+    union
+    {
+        Word u;
+        int8_t u8[sizeof(Word)];
+    } source;
+
+    source.u = value;
+
+    for (int i=0; i<sizeof(Word); i++)
+        outs.put(source.u8[i]);
     return outs;
-  }
 }
-using namespace little_endian_io;
+
+template <typename Word>
+std::ostream& write_word_swap_endian( std::ostream& outs, Word value, unsigned size = sizeof( Word ) )
+{
+    for (; size; --size, value >>= 8)
+        outs.put( static_cast <int8_t> (value & 0xFF) );
+    return outs;
+}
 
 
 void MicReadAlsa::record_thread()
@@ -383,13 +396,13 @@ void MicReadAlsa::record_thread()
     int data_block_size = (int) channels_ * bits_per_sample_ / 8;
 
     f << "RIFF----WAVEfmt ";     // (chunk size to be filled in later)
-    write_word( f,               16, 4 );  // no extension data
-    write_word( f,                1, 2 );  // PCM - integer samples
-    write_word( f,        channels_, 2 );  // one channel (mono file)
-    write_word( f,            rate_, 4 );  // samples per second (Hz)
-    write_word( f,    total_bitrate, 4 );  // (Sample Rate * BitsPerSample * Channels) / 8 == 176400 for 2 channels with 16 bits per sample
-    write_word( f,  data_block_size, 2 );  // data block size (size of all integer sample, one for each channel, in bytes)
-    write_word( f, bits_per_sample_, 2 );  // number of bits per sample (use a multiple of 8)
+    write_word_swap_endian( f,               16, 4 );  // no extension data
+    write_word_swap_endian( f,                1, 2 );  // PCM - integer samples
+    write_word_swap_endian( f,        channels_, 2 );  // one channel (mono file)
+    write_word_swap_endian( f,            rate_, 4 );  // samples per second (Hz)
+    write_word_swap_endian( f,    total_bitrate, 4 );  // (Sample Rate * BitsPerSample * Channels) / 8 == 176400 for 2 channels with 16 bits per sample
+    write_word_swap_endian( f,  data_block_size, 2 );  // data block size (size of all integer sample, one for each channel, in bytes)
+    write_word_swap_endian( f, bits_per_sample_, 2 );  // number of bits per sample (use a multiple of 8)
 
     // Write the data chunk header
     size_t data_chunk_pos = f.tellp();
@@ -415,10 +428,11 @@ void MicReadAlsa::record_thread()
 
         for (auto iter=data.begin(); iter != data.end(); iter++)
         {
-            for(int i=0; i<iter->frame.size(); i+=2)
+            for(int i=0; i<iter->frame.size(); i++)
             {
                 //Recording data frame (only 1 channel)
-                write_word( f, iter->frame[i], (int) bits_per_sample_ / 8 );
+                write_word_swap_endian(f, iter->frame[i], (int)bits_per_sample_/8);
+//                write_word(f, iter->frame[i]);
             }
         }
     }
@@ -430,9 +444,9 @@ void MicReadAlsa::record_thread()
 
     // Fix the data chunk header to contain the data size
     f.seekp( data_chunk_pos + 4 );
-    write_word( f, file_length - data_chunk_pos + 8 );
+    write_word_swap_endian( f, file_length - data_chunk_pos + 8 );
 
     // Fix the file header to contain the proper RIFF chunk size, which is (file size - 8) bytes
     f.seekp( 0 + 4 );
-    write_word( f, file_length - 8, 4 );
+    write_word_swap_endian( f, file_length - 8, 4 );
 }
