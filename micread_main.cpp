@@ -41,21 +41,22 @@ int main()
     //third par: record only, i.e. if record thread should clear the buffer
     mic_reader.start();
 
-    int iterations = 10000;
+    int iterations = 100;
 
     for(int i=0; i<iterations && run_main_thread; i++){
         std::cout<<"Main thread running:"<<run_main_thread<<std::endl;
         //10ms in my case was sort of optimal, i.e. it spits one frame per step
         std::this_thread::sleep_for (std::chrono::milliseconds(10));
         std::cout << mic_reader.getData();
-        std::cout << "Freq: " << mic_reader.getFreq() << std::endl << std::flush;
+        std::cout << std::endl;
+        std::cout << "Freq: " << mic_reader.estReadFreq() << std::endl << std::flush;
     }
 
     // Testing pause functionality
     if(run_main_thread) {
         printf("Trying to pause thread ...\n");
         mic_reader.pause();
-        std::this_thread::sleep_for (std::chrono::milliseconds(1000));
+        std::this_thread::sleep_for (std::chrono::milliseconds(5000));
         mic_reader.start();
 
         // Testing resuming
@@ -64,7 +65,7 @@ int main()
             //10ms in my case was sort of optimal
             std::this_thread::sleep_for (std::chrono::milliseconds(10));
             std::cout << mic_reader.getData();
-            std::cout << "Freq: " << mic_reader.getFreq() << std::endl << std::flush;
+            std::cout << "Freq: " << mic_reader.estReadFreq() << std::endl << std::flush;
         }
     }
 

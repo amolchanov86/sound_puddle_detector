@@ -55,7 +55,7 @@ See more about ALSA programming here: https://www.linuxjournal.com/article/6735
 #define MICREAD_DEF_DEVICE "default"
 #define MICREAD_DEF_NAME "MicRead"
 #define MICREAD_DEF_REC_FILENAME "rec_mic"
-
+#define MICREAD_DEF_REC_FREQ 100
 
 //---SND_PCM_FORMAT options:
 //SND_PCM_FORMAT_U8:
@@ -86,6 +86,7 @@ public:
     MicReadAlsa(bool manual_start=false,
                 bool record=true,
                 bool record_only=true,
+                float record_freq=MICREAD_DEF_REC_FREQ,
                 std::string filename_base=MICREAD_DEF_REC_FILENAME,
                 std::string device=MICREAD_DEF_DEVICE,
                 int buffer_frames=MICREAD_DEF_BUF_SIZE,
@@ -113,7 +114,8 @@ public:
     // If record is false it just moves all the data.
     // If record_only is true then the record thread calls this function and clears the data
     std::vector<micDataStamped> getData();
-    double getFreq() const {return freq_;} //Frequency of data reading
+    double estReadFreq() const {return freq_;} //Frequency of data reading
+    double estFPS() const {return fps_est_;} //Frames per Second estimate
 
     std::deque<micDataStamped> data; //Direct data access - unsafe. Better use getData() !!!
 
@@ -126,6 +128,15 @@ public:
     int openDevice(std::string device=MICREAD_DEF_DEVICE,
                    int buffer_frames=MICREAD_DEF_BUF_SIZE,
                    unsigned int rate=MICREAD_DEF_RATE);
+
+    // Sets the recording freq through calculating a delay
+    void setRecFreq(float rec_freq){
+        rec_delay_ = (long) 1./ rec_freq * 1000; //ms
+    }
+
+    // Get measured recording freq
+    float estRecFreq() const {return rec_freq_estimate_;}
+
 
 protected:
     std::mutex mtx_; //thread pause mutex
@@ -155,7 +166,9 @@ protected:
     // Thread stuff
     void run(); //Thread functions
     void record_thread();
-    double freq_;
+    double freq_; // estimated frequency of the reading thread
+    double rec_freq_estimate_;
+    double fps_est_;
     bool record_only_;
     bool record_;
 
@@ -168,6 +181,7 @@ protected:
     // This function copies only unrecorded data and marks the data as recorded
     // It is also safe since it lock the thread
     std::vector<micDataStamped> copyUnrecordedData();
+    long rec_delay_;
 
     // The copyData() is inherently unsafe to use: it locks the mutex, copies the data.
     // Beware it does not clean anything.

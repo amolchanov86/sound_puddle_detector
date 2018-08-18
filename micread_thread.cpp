@@ -7,6 +7,7 @@
 MicReadAlsa::MicReadAlsa(bool manual_start,
                          bool record,
                          bool record_only,
+                         float record_freq,
                          std::string filename_base,
                          std::string device,
                          int buffer_frames,
@@ -28,8 +29,10 @@ MicReadAlsa::MicReadAlsa(bool manual_start,
     record_only_(record_only),
     record_(record),
     chunks_read_(0),
-    chunks_recorded_(0)
+    chunks_recorded_(0),
+    rec_freq_estimate_(0.)
 {
+    setRecFreq(record_freq);
 
     bits_per_sample_ = snd_pcm_format_width(format_);
     if(openDevice() < 0){
@@ -125,6 +128,10 @@ void MicReadAlsa::run() {
         }
 
         // ALSA
+        //Creating a timestamp
+        auto time = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()
+                    );
         if ((err = snd_pcm_readi(capture_handle_, buffer_, buffer_frames_)) != buffer_frames_)
         {
             fprintf(stderr, "%s: ERROR: Read from audio interface failed (%s)\n",
@@ -140,23 +147,13 @@ void MicReadAlsa::run() {
                 chunk_stamped.flags.recorded = !record_;
                 chunks_read_ += 1;
 
-                //Creating a timestamp
-                auto time = std::chrono::duration_cast<std::chrono::microseconds>(
-                            std::chrono::system_clock::now().time_since_epoch()
-                            );
                 long timestamp = time.count(); //count milliseconds
                 chunk_stamped.timestamp = timestamp;
 
-                //Copying data from the temporary buffer
-                //                int bytes_per_sample = bits_per_sample_ / 8;
-                //                for (int i = 0; i < buffer_frames_ * channels_ * bytes_per_sample; i++)
-                //                {
-                //                    frame_stamped.frames.push_back(buffer_[i]);
-                //                }
-
-                //A bit more general version, but still for a single channel
-                int i_incr = channels_* bits_per_sample_ / 8;
-                for (int i = 0; i < buffer_frames_ * i_incr; i+=i_incr)
+                //Only for a single channel
+                int i_incr = bits_per_sample_ / 8;
+                int buffer_bytes = buffer_frames_ * channels_* bits_per_sample_ / 8;
+                for (int i = 0; i < buffer_bytes; i+=i_incr)
                 {
                     // swap_endian(buffer_ + i, bits_per_sample_ / 8);
                     auto val_ptr = (int16_t *) (buffer_ + i);
@@ -164,7 +161,9 @@ void MicReadAlsa::run() {
                 }
 
                 //Calculating freq
-                freq_ = (double)buffer_frames_ / (double)(time - time_prev).count() * 1000000.0;
+                freq_ = (double) 1.0 / (double)(time - time_prev).count() * 1000000.0;
+                fps_est_= (double) buffer_frames_ / (double)(time - time_prev).count() * 1000000.0;
+//                std::cout << "Read freq: " << estReadFreq() << " FPS:" << estFPS() << std::endl;
                 time_prev = time;
 
                 //Push data to the main data buffer
@@ -332,7 +331,7 @@ std::vector<micDataStamped> MicReadAlsa::getData(){
     std::vector<micDataStamped> data_temp;
     data_mtx_.lock();
     while(!data.empty() && data.front().flags.recorded) {
-        data_temp.push_back(data.front()); //SHould be implemented more efficiently, but I am too lazy at the moment :)
+        data_temp.push_back(std::move(data.front())); //Not not sure if move actually makes difference
         data.pop_front();
     }
     data_mtx_.unlock();
@@ -443,6 +442,11 @@ void MicReadAlsa::record_thread()
     size_t data_chunk_pos = f.tellp();
     f << "data----";  // (chunk size to be filled in later)
 
+    //Time to measure freq
+    auto rec_time_prev = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()
+                );
+
     printf("%s: Recording Thread ready ...\n", name_.c_str());
     //-----------------------------------------------------------------
     // RECORDING WAV
@@ -454,16 +458,25 @@ void MicReadAlsa::record_thread()
             std::unique_lock<std::mutex> lck(mtx_);
             cv_.wait(lck);
         }
+
+        //Creating a timestamp
+        auto rec_time = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()
+                    );
+
         // Sleeping
-        std::this_thread::sleep_for (std::chrono::milliseconds(10));
+        std::this_thread::sleep_for (std::chrono::milliseconds(rec_delay_));
         // Checking data
         auto data = copyUnrecordedData();
         // If data empty - let's wait more
         if(data.empty()) continue;
 
+        int chunks_recorded_cur = 0;
+
         for (auto iter=data.begin(); iter != data.end(); iter++)
         {
-            chunks_recorded_ += 1;
+            chunks_recorded_ ++;
+            chunks_recorded_cur ++;
             for(int i=0; i<iter->frames.size(); i++)
             {
                 //Recording data frame (only 1 channel)
@@ -471,6 +484,14 @@ void MicReadAlsa::record_thread()
 //                write_word(f, iter->frame[i]);
             }
         }
+
+        //Calculating freq
+        rec_freq_estimate_ = (double) 1.0 / (rec_time - rec_time_prev).count() * 1000000;
+
+        std::cout << "Rec freq: " << estRecFreq() << " Chunks recorded:" << chunks_recorded_cur << std::endl;
+        rec_time_prev = rec_time;
+
+
     }
 
     //-----------------------------------------------------------------
