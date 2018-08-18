@@ -41,11 +41,20 @@
 
 
 #define MICREAD_DEF_FRAME_SIZE 512 //Smaller buffers resulted in the same millisecond time stamp
-#define MICREAD_DEF_RATE 8000 //44100
-#define MICREAD_DEF_BPS 16 //44100
-#define MICREAD_DEF_DEVICE "hw:0,0"
+#define MICREAD_DEF_RATE 44100 //44100
+//#define MICREAD_DEF_BPS 16 //8
+//#define MICREAD_DEF_DEVICE "hw:0,0"
+#define MICREAD_DEF_DEVICE "default"
 #define MICREAD_DEF_NAME "MicRead"
 #define MICREAD_DEF_REC_FILENAME "rec_mic"
+
+
+//---SND_PCM_FORMAT options:
+//SND_PCM_FORMAT_U8:
+//SND_PCM_FORMAT_S16_LE:
+//SND_PCM_FORMAT_S32_LE:
+//SND_PCM_FORMAT_S24_LE:
+//SND_PCM_FORMAT_S24_3LE:
 
 struct micDataStamped
 {
@@ -64,11 +73,11 @@ public:
                 int buffer_frames=MICREAD_DEF_FRAME_SIZE,
                 unsigned int rate=MICREAD_DEF_RATE,
                 int channels=1,
-                int bits_per_sample=MICREAD_DEF_BPS,
                 snd_pcm_format_t format=SND_PCM_FORMAT_S16_LE,
                 std::string name=MICREAD_DEF_NAME);
     /// \param manual_start  if you don't want automatic start set to True and use start() later
     /// \param record_only  if set True the recording thread will clear the buffer automatically
+    /// \param channels ONLY 1 CHANNEL SUPPORTED. Parameter left for future extensions
 
     ~MicReadAlsa();
 
@@ -110,7 +119,7 @@ protected:
     unsigned int rate_; //44100 default
 
     // ALSA stuff
-    int16_t *buffer_; //temporary data buffer for ALSA
+    int8_t *buffer_; //temporary data buffer for ALSA
     snd_pcm_t *capture_handle_;
     std::string device_; //Devices are in the format: "hw:X,Y", where X - card #, Y - device #. Both are int
     snd_pcm_hw_params_t *hw_params_;
@@ -132,7 +141,14 @@ protected:
 
 };
 
-std::ostream& operator<<(std::ostream& os, const std::vector<int16_t>& data);
+template <typename T>
+std::ostream& operator<<(std::ostream& os, const std::vector<T>& data){
+    for(int i=0; i<data.size(); i++) {
+        std::cout<<(int)data[i]<<" ";
+    }
+    return os;
+}
+
 std::ostream& operator<<(std::ostream& os, const std::vector<micDataStamped>& data);
 std::ostream& operator<<(std::ostream& os, const micDataStamped& data);
 

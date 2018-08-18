@@ -14,13 +14,14 @@
 #include <stdlib.h>
 #include <alsa/asoundlib.h>
 	      
-main (int argc, char *argv[])
+int main (int argc, char *argv[])
 {
   int i;
   int err;
   char *buffer;
   int buffer_frames = 128;
   unsigned int rate = 44100;
+  int channels = 2;
   snd_pcm_t *capture_handle;
   snd_pcm_hw_params_t *hw_params;
 	snd_pcm_format_t format = SND_PCM_FORMAT_S16_LE;
@@ -74,7 +75,7 @@ main (int argc, char *argv[])
 	
   fprintf(stdout, "hw_params rate setted\n");
 
-  if ((err = snd_pcm_hw_params_set_channels (capture_handle, hw_params, 2)) < 0) {
+  if ((err = snd_pcm_hw_params_set_channels (capture_handle, hw_params, channels)) < 0) {
     fprintf (stderr, "cannot set channel count (%s)\n",
              snd_strerror (err));
     exit (1);
@@ -102,14 +103,14 @@ main (int argc, char *argv[])
 
   fprintf(stdout, "audio interface prepared\n");
 
-  buffer = malloc(128 * snd_pcm_format_width(format) / 8 * 2);
+  buffer = malloc(buffer_frames * snd_pcm_format_width(format) / 8 * channels);
 
   fprintf(stdout, "buffer allocated\n");
 
   for (i = 0; i < 10; ++i) {
     if ((err = snd_pcm_readi (capture_handle, buffer, buffer_frames)) != buffer_frames) {
       fprintf (stderr, "read from audio interface failed (%s)\n",
-               err, snd_strerror (err));
+               snd_strerror(err));
       exit (1);
     }
     fprintf(stdout, "read %d done\n", i);

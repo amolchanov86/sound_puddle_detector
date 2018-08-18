@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <climits>
 
 MicReadAlsa::MicReadAlsa(bool manual_start,
                          bool record,
@@ -11,7 +12,6 @@ MicReadAlsa::MicReadAlsa(bool manual_start,
                          int buffer_frames,
                          unsigned int rate,
                          int channels,
-                         int bits_per_sample,
                          snd_pcm_format_t format,
                          std::string name):
     run_fl_(false),
@@ -25,10 +25,11 @@ MicReadAlsa::MicReadAlsa(bool manual_start,
     freq_(0.0),
     filename_base_(filename_base),
     channels_(channels),
-    bits_per_sample_(bits_per_sample),
     record_only_(record_only),
     record_(record)
 {
+
+    bits_per_sample_ = snd_pcm_format_width(format_);
     if(openDevice() < 0){
         fprintf(stderr,"%s: ERROR: Failed to open device %s. Please openDevice() manually and start() the thread ...\n",
         name_.c_str(),
@@ -53,14 +54,46 @@ MicReadAlsa::~MicReadAlsa() {
         // Waiting for the thread to finish
         finish();
     }
-    if(buffer_ != nullptr) {
+    if(buffer_ != nullptr){
         delete[] buffer_;
+        buffer_ = nullptr;
     }
+}
+
+
+//template <typename T>
+//T swap_endian(T u, size=sizeof(T))
+//{
+//    static_assert (CHAR_BIT == 8, "CHAR_BIT != 8");
+
+//    union
+//    {
+//        T u;
+//        unsigned char u8[size];
+//    } source, dest;
+
+//    source.u = u;
+
+//    for (size_t k = 0; k < size; k++)
+//        dest.u8[k] = source.u8[size - k - 1];
+
+//    return dest.u;
+//}
+
+int8_t* swap_endian(int8_t* value, int size)
+{
+  int8_t buf;
+  for (int i=0; i<size/2; i++) {
+      buf = value[i];
+      value[i] = value[size-i-1];
+      value[size-i-1] = buf;
+  }
 }
 
 void MicReadAlsa::run() {
     int err; //Reporting ALSA errors
-    buffer_ = new int16_t[buffer_frames_ * snd_pcm_format_width(format_) / 8];
+
+    buffer_ = new int8_t[buffer_frames_ * snd_pcm_format_width(format_) * channels_/ 8];
 
     //Time to measure freq
     auto time_prev = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -110,9 +143,19 @@ void MicReadAlsa::run() {
                 frame_stamped.timestamp = timestamp;
 
                 //Copying data from the temporary buffer
-                for (int i = 0; i < buffer_frames_; i++)
+//                int bytes_per_sample = bits_per_sample_ / 8;
+//                for (int i = 0; i < buffer_frames_ * channels_ * bytes_per_sample; i++)
+//                {
+//                    frame_stamped.frame.push_back(buffer_[i]);
+//                }
+
+                //A bit more general version, but still for a single channel
+                int i_incr = channels_* bits_per_sample_ / 8;
+                for (int i = 0; i < buffer_frames_ * i_incr; i+=i_incr)
                 {
-                    frame_stamped.frame.push_back(buffer_[i]);
+//                    swap_endian(buffer_ + i, bits_per_sample_ / 8);
+                    auto val_ptr = (uint16_t *) (buffer_ + i);
+                    frame_stamped.frame.push_back(*val_ptr);
                 }
 
                 //Calculating freq
@@ -132,6 +175,7 @@ void MicReadAlsa::run() {
     delete[] buffer_;
     buffer_ = nullptr;
 
+    snd_pcm_drain(capture_handle_);
     snd_pcm_close (capture_handle_);
     fprintf(stdout, "%s: Audio interface closed\n", name_.c_str());
 
@@ -153,14 +197,16 @@ void MicReadAlsa::start() {
 }
 
 void MicReadAlsa::pause() {
-    std::unique_lock<std::mutex> lck(mtx_);
-    run_fl_ = false;
+    if(ready_fl_) {
+        std::unique_lock<std::mutex> lck(mtx_);
+        run_fl_ = false;
+    }
 }
 
 void MicReadAlsa::finish() {
+    cv_.notify_all();
     ready_fl_ = false;
 //    run_fl_ = false;
-    cv_.notify_all();
     printf("%s : Waiting for the reading thread to finish ...\n", name_.c_str());
     th_.join();
     if(record_){
@@ -240,7 +286,7 @@ int MicReadAlsa::openDevice(std::string device,
     }
     fprintf(stdout, "%s: hw_params rate setted\n", name_.c_str());
 
-    if ((err = snd_pcm_hw_params_set_channels (capture_handle_, hw_params_, 2)) < 0) {
+    if ((err = snd_pcm_hw_params_set_channels (capture_handle_, hw_params_, channels_)) < 0) {
         fprintf (stderr, "%s: ERROR: cannot set channel count (%s)\n",
                  name_.c_str(),
                  snd_strerror (err));
@@ -291,13 +337,6 @@ std::vector<micDataStamped> MicReadAlsa::copyData(){
 }
 
 
-std::ostream& operator<<(std::ostream& os, const std::vector<int16_t>& data){
-    for(int i=0; i<data.size(); i++) {
-        std::cout<<(int)data[i]<<" ";
-    }
-    return os;
-}
-
 std::ostream& operator<<(std::ostream& os, const micDataStamped& data){
     os << "Timestamp: " << data.timestamp << std::endl;
     os << "Data: " << data.frame << std::endl;
@@ -332,6 +371,7 @@ namespace little_endian_io
   }
 }
 using namespace little_endian_io;
+
 
 void MicReadAlsa::record_thread()
 {
@@ -375,9 +415,9 @@ void MicReadAlsa::record_thread()
 
         for (auto iter=data.begin(); iter != data.end(); iter++)
         {
-            for(int i=0; i<iter->frame.size(); i++)
+            for(int i=0; i<iter->frame.size(); i+=2)
             {
-                //Recording data frame
+                //Recording data frame (only 1 channel)
                 write_word( f, iter->frame[i], (int) bits_per_sample_ / 8 );
             }
         }
