@@ -6,3 +6,4 @@ build
 _data
 _results_temp
 *.swp
+CMakeLists.txt.user

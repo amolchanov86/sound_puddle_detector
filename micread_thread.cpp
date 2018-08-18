@@ -1,6 +1,19 @@
 #include "micread_thread.hpp"
 
-MicReadAlsa::MicReadAlsa(bool manual_start, std::string device, int buffer_frames, unsigned int rate, snd_pcm_format_t format, std::string name):
+#include <fstream>
+#include <iostream>
+
+MicReadAlsa::MicReadAlsa(bool manual_start,
+                         bool record,
+                         bool record_only,
+                         std::string filename_base,
+                         std::string device,
+                         int buffer_frames,
+                         unsigned int rate,
+                         int channels,
+                         int bits_per_sample,
+                         snd_pcm_format_t format,
+                         std::string name):
     run_fl_(false),
     ready_fl_(true),
     name_(name),
@@ -9,7 +22,12 @@ MicReadAlsa::MicReadAlsa(bool manual_start, std::string device, int buffer_frame
     format_(format),
     device_(device),
     buffer_(nullptr),
-    freq_(0.0)
+    freq_(0.0),
+    filename_base_(filename_base),
+    channels_(channels),
+    bits_per_sample_(bits_per_sample),
+    record_only_(record_only),
+    record_(record)
 {
     if(openDevice() < 0){
         fprintf(stderr,"%s: ERROR: Failed to open device %s. Please openDevice() manually and start() the thread ...\n",
@@ -19,10 +37,14 @@ MicReadAlsa::MicReadAlsa(bool manual_start, std::string device, int buffer_frame
         ready_fl_ = false;
     }
     th_ = std::thread(&MicReadAlsa::run, this);
+    if(record) {
+        th_rec_ = std::thread(&MicReadAlsa::record_thread, this);
+    }
 
     if(!manual_start) {
         start();
     }
+
 }
 
 MicReadAlsa::~MicReadAlsa() {
@@ -38,7 +60,7 @@ MicReadAlsa::~MicReadAlsa() {
 
 void MicReadAlsa::run() {
     int err; //Reporting ALSA errors
-    buffer_ = new char[buffer_frames_ * snd_pcm_format_width(format_) / 8 * 2];
+    buffer_ = new int16_t[buffer_frames_ * snd_pcm_format_width(format_) / 8];
 
     //Time to measure freq
     auto time_prev = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -46,7 +68,7 @@ void MicReadAlsa::run() {
     );
     long int frames_since_last = 0;
 
-    printf("%s: Thread ready ...\n", name_.c_str());
+    printf("%s: Reading Thread ready ...\n", name_.c_str());
 
     while(ready_fl_)
     {
@@ -116,7 +138,6 @@ void MicReadAlsa::run() {
     printf("%s: Thread func finished ...\n", name_.c_str());
 }
 
-
 void MicReadAlsa::start() {
     std::unique_lock<std::mutex> lck(mtx_);
     ready_fl_ = true;
@@ -137,13 +158,16 @@ void MicReadAlsa::pause() {
 }
 
 void MicReadAlsa::finish() {
-    run_fl_ = false;
     ready_fl_ = false;
+//    run_fl_ = false;
     cv_.notify_all();
-    printf("%s : Waiting for the thread to finish ...\n", name_.c_str());
+    printf("%s : Waiting for the reading thread to finish ...\n", name_.c_str());
     th_.join();
+    if(record_){
+        printf("%s : Waiting for the recording thread to finish ...\n", name_.c_str());
+        th_rec_.join();
+    }
 }
-
 
 int MicReadAlsa::openDevice(std::string device,
                             int buffer_frames,
@@ -259,8 +283,15 @@ std::vector<micDataStamped> MicReadAlsa::getData(){
     return data_temp; //Theoretically should return by rval since C11 to avoid copying
 }
 
+std::vector<micDataStamped> MicReadAlsa::copyData(){
+    data_mtx_.lock();
+    std::vector<micDataStamped> data_temp = data; //Just copying data
+    data_mtx_.unlock();
+    return data_temp; //Theoretically should return by rval since C11 to avoid copying
+}
 
-std::ostream& operator<<(std::ostream& os, const std::vector<char>& data){
+
+std::ostream& operator<<(std::ostream& os, const std::vector<int16_t>& data){
     for(int i=0; i<data.size(); i++) {
         std::cout<<(int)data[i]<<" ";
     }
@@ -286,3 +317,82 @@ std::ostream& operator<<(std::ostream& os, const std::vector<micDataStamped>& da
     return os;
 }
 
+
+//-----------------------------------------------------------------
+//RECORDING RELATED STUFF
+
+namespace little_endian_io
+{
+  template <typename Word>
+  std::ostream& write_word( std::ostream& outs, Word value, unsigned size = sizeof( Word ) )
+  {
+    for (; size; --size, value >>= 8)
+      outs.put( static_cast <char> (value & 0xFF) );
+    return outs;
+  }
+}
+using namespace little_endian_io;
+
+void MicReadAlsa::record_thread()
+{
+    //-----------------------------------------------------------------
+    // PREPARING WAV HEADER
+    std::ofstream f( filename_base_ + ".wav", std::ios::binary );
+
+    int total_bitrate = rate_ * bits_per_sample_ * channels_; //sample rate
+    int data_block_size = (int) channels_ * bits_per_sample_ / 8;
+
+    f << "RIFF----WAVEfmt ";     // (chunk size to be filled in later)
+    write_word( f,               16, 4 );  // no extension data
+    write_word( f,                1, 2 );  // PCM - integer samples
+    write_word( f,        channels_, 2 );  // one channel (mono file)
+    write_word( f,            rate_, 4 );  // samples per second (Hz)
+    write_word( f,    total_bitrate, 4 );  // (Sample Rate * BitsPerSample * Channels) / 8 == 176400 for 2 channels with 16 bits per sample
+    write_word( f,  data_block_size, 2 );  // data block size (size of all integer sample, one for each channel, in bytes)
+    write_word( f, bits_per_sample_, 2 );  // number of bits per sample (use a multiple of 8)
+
+    // Write the data chunk header
+    size_t data_chunk_pos = f.tellp();
+    f << "data----";  // (chunk size to be filled in later)
+
+    printf("%s: Recording Thread ready ...\n", name_.c_str());
+    //-----------------------------------------------------------------
+    // RECORDING WAV
+    while(ready_fl_)
+    {
+        // Pausing together with the reading thread
+        if(!run_fl_){
+            printf("%s: Record Thread is paused ...\n",  name_.c_str());
+            std::unique_lock<std::mutex> lck(mtx_);
+            cv_.wait(lck);
+        }
+        // Sleeping
+        std::this_thread::sleep_for (std::chrono::milliseconds(10));
+        // Checking data
+        auto data = (record_only_) ? getData() : copyData();
+        // If data empty - let's wait more
+        if(data.empty()) continue;
+
+        for (auto iter=data.begin(); iter != data.end(); iter++)
+        {
+            for(int i=0; i<iter->frame.size(); i++)
+            {
+                //Recording data frame
+                write_word( f, iter->frame[i], (int) bits_per_sample_ / 8 );
+            }
+        }
+    }
+
+    //-----------------------------------------------------------------
+    // --- CLOSING WAV RECODRING
+    // We'll need the final file size to fix the chunk sizes above
+    size_t file_length = f.tellp();
+
+    // Fix the data chunk header to contain the data size
+    f.seekp( data_chunk_pos + 4 );
+    write_word( f, file_length - data_chunk_pos + 8 );
+
+    // Fix the file header to contain the proper RIFF chunk size, which is (file size - 8) bytes
+    f.seekp( 0 + 4 );
+    write_word( f, file_length - 8, 4 );
+}

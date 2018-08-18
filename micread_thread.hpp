@@ -41,27 +41,37 @@
 
 
 #define MICREAD_DEF_FRAME_SIZE 512 //Smaller buffers resulted in the same millisecond time stamp
-#define MICREAD_DEF_RATE 44100
+#define MICREAD_DEF_RATE 8000 //44100
+#define MICREAD_DEF_BPS 16 //44100
 #define MICREAD_DEF_DEVICE "hw:0,0"
 #define MICREAD_DEF_NAME "MicRead"
+#define MICREAD_DEF_REC_FILENAME "rec_mic"
 
 struct micDataStamped
 {
     int64_t timestamp; //milliseconds time stamp
-    std::vector<char> frame; //mic data itself
+    std::vector<int16_t> frame; //mic data itself
 };
 
 class MicReadAlsa
 {
 public:
-    MicReadAlsa(
-        bool manual_start=false,
-        std::string device=MICREAD_DEF_DEVICE,
-        int buffer_frames=MICREAD_DEF_FRAME_SIZE,
-        unsigned int rate=MICREAD_DEF_RATE,
-        snd_pcm_format_t format=SND_PCM_FORMAT_S16_LE,
-        std::string name=MICREAD_DEF_NAME);
+    MicReadAlsa(bool manual_start=false,
+                bool record=true,
+                bool record_only=true,
+                std::string filename_base=MICREAD_DEF_REC_FILENAME,
+                std::string device=MICREAD_DEF_DEVICE,
+                int buffer_frames=MICREAD_DEF_FRAME_SIZE,
+                unsigned int rate=MICREAD_DEF_RATE,
+                int channels=1,
+                int bits_per_sample=MICREAD_DEF_BPS,
+                snd_pcm_format_t format=SND_PCM_FORMAT_S16_LE,
+                std::string name=MICREAD_DEF_NAME);
+    /// \param manual_start  if you don't want automatic start set to True and use start() later
+    /// \param record_only  if set True the recording thread will clear the buffer automatically
+
     ~MicReadAlsa();
+
 
     //--- Thread handling
     void start(); //Starts the reading thread (if delayed_start is not set in the constructor the threads starts automatically)
@@ -71,9 +81,11 @@ public:
 
     //--- Data handling
     // The function locks the mutex, moves the data and clears the main buffer
-    // This is a safe way to access data
+    // If record_only is set then the record thread calls this function
     std::vector<micDataStamped> getData();
-    double getFreq() const {return freq_;}; //Frequency of data reading
+    // The function locks the mutex, copies the data
+    std::vector<micDataStamped> copyData();//
+    double getFreq() const {return freq_;} //Frequency of data reading
 
     std::vector<micDataStamped> data; //Direct data access - unsafe. Better use getData() !!!
 
@@ -92,23 +104,35 @@ protected:
     bool ready_fl_; //thread alive flag (not exited)
     std::string name_; //object name (for messaging)
     std::thread th_; //reading thread
+    std::thread th_rec_;//recording thread
 
     int buffer_frames_; //128 default
     unsigned int rate_; //44100 default
 
     // ALSA stuff
-    char *buffer_; //temporary data buffer for ALSA
+    int16_t *buffer_; //temporary data buffer for ALSA
     snd_pcm_t *capture_handle_;
     std::string device_; //Devices are in the format: "hw:X,Y", where X - card #, Y - device #. Both are int
     snd_pcm_hw_params_t *hw_params_;
     snd_pcm_format_t format_;
 
+    // Wav stuff
+    int channels_;
+    int bits_per_sample_;
+
+    // Thread stuff
     void run(); //Thread functions
+    void record_thread();
     double freq_;
+    bool record_only_;
+    bool record_;
+
+    bool openFiles();//Opens files that we are recording into
+    std::string filename_base_;//We will modify this base to record csv and wav files
 
 };
 
-std::ostream& operator<<(std::ostream& os, const std::vector<char>& data);
+std::ostream& operator<<(std::ostream& os, const std::vector<int16_t>& data);
 std::ostream& operator<<(std::ostream& os, const std::vector<micDataStamped>& data);
 std::ostream& operator<<(std::ostream& os, const micDataStamped& data);
 
