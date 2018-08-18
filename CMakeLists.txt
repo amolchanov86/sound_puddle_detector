@@ -19,5 +19,7 @@ target_link_libraries(example_calsa2_mic_recording ${ALSA_LIBRARIES})
 add_executable(example_sine examples/example_sine.cpp)
 target_link_libraries(example_sine ${ALSA_LIBRARIES})
 
+add_executable(endianess examples/endianess.cpp)
+
 add_executable(${PROJECT_NAME} micread_main.cpp micread_thread.cpp)
 target_link_libraries(${PROJECT_NAME} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${ALSA_LIBRARIES})

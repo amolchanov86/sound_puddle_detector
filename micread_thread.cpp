@@ -26,7 +26,9 @@ MicReadAlsa::MicReadAlsa(bool manual_start,
     filename_base_(filename_base),
     channels_(channels),
     record_only_(record_only),
-    record_(record)
+    record_(record),
+    chunks_read_(0),
+    chunks_recorded_(0)
 {
 
     bits_per_sample_ = snd_pcm_format_width(format_);
@@ -133,29 +135,32 @@ void MicReadAlsa::run() {
         else {
             if(data_mtx_.try_lock())
             {
-                micDataStamped frame_stamped;
+                micDataStamped chunk_stamped;
+                chunk_stamped.id = chunks_read_;
+                chunk_stamped.flags.recorded = !record_;
+                chunks_read_ += 1;
 
                 //Creating a timestamp
                 auto time = std::chrono::duration_cast<std::chrono::microseconds>(
                             std::chrono::system_clock::now().time_since_epoch()
                             );
                 long timestamp = time.count(); //count milliseconds
-                frame_stamped.timestamp = timestamp;
+                chunk_stamped.timestamp = timestamp;
 
                 //Copying data from the temporary buffer
                 //                int bytes_per_sample = bits_per_sample_ / 8;
                 //                for (int i = 0; i < buffer_frames_ * channels_ * bytes_per_sample; i++)
                 //                {
-                //                    frame_stamped.frame.push_back(buffer_[i]);
+                //                    frame_stamped.frames.push_back(buffer_[i]);
                 //                }
 
                 //A bit more general version, but still for a single channel
                 int i_incr = channels_* bits_per_sample_ / 8;
                 for (int i = 0; i < buffer_frames_ * i_incr; i+=i_incr)
                 {
-//                    swap_endian(buffer_ + i, bits_per_sample_ / 8);
-                    auto val_ptr = (uint16_t *) (buffer_ + i);
-                    frame_stamped.frame.push_back(*val_ptr);
+                    // swap_endian(buffer_ + i, bits_per_sample_ / 8);
+                    auto val_ptr = (int16_t *) (buffer_ + i);
+                    chunk_stamped.frames.push_back(*val_ptr);
                 }
 
                 //Calculating freq
@@ -163,7 +168,7 @@ void MicReadAlsa::run() {
                 time_prev = time;
 
                 //Push data to the main data buffer
-                data.push_back(frame_stamped);
+                data.push_back(chunk_stamped);
 
                 data_mtx_.unlock();
             }
@@ -180,6 +185,7 @@ void MicReadAlsa::run() {
     fprintf(stdout, "%s: Audio interface closed\n", name_.c_str());
 
     printf("%s: Thread func finished ...\n", name_.c_str());
+    printf("%s: Chunks read %ld ...\n",  name_.c_str(), getChunksRead());
 }
 
 void MicReadAlsa::start() {
@@ -207,10 +213,10 @@ void MicReadAlsa::finish() {
     cv_.notify_all();
     ready_fl_ = false;
     //    run_fl_ = false;
-    printf("%s : Waiting for the reading thread to finish ...\n", name_.c_str());
+    printf("%s: Waiting for the reading thread to finish ...\n", name_.c_str());
     th_.join();
     if(record_){
-        printf("%s : Waiting for the recording thread to finish ...\n", name_.c_str());
+        printf("%s: Waiting for the recording thread to finish ...\n", name_.c_str());
         th_rec_.join();
     }
 }
@@ -323,15 +329,43 @@ int MicReadAlsa::openDevice(std::string device,
 }
 
 std::vector<micDataStamped> MicReadAlsa::getData(){
+    std::vector<micDataStamped> data_temp;
     data_mtx_.lock();
-    std::vector<micDataStamped> data_temp = std::move(data); //After moving the data vector should be empty
+    while(!data.empty() && data.front().flags.recorded) {
+        data_temp.push_back(data.front()); //SHould be implemented more efficiently, but I am too lazy at the moment :)
+        data.pop_front();
+    }
     data_mtx_.unlock();
     return data_temp; //Theoretically should return by rval since C11 to avoid copying
 }
 
-std::vector<micDataStamped> MicReadAlsa::copyData(){
+std::vector<micDataStamped> MicReadAlsa::copyUnrecordedData(){
+    std::vector<micDataStamped> data_temp;
     data_mtx_.lock();
-    std::vector<micDataStamped> data_temp = data; //Just copying data
+    for(auto it = data.begin(); it != data.end(); it++)
+    {
+        if(!(it->flags.recorded))
+        {
+            data_temp.push_back(*it); //hopefully default copy constructor will do the job
+            it->flags.recorded = 1;
+        }
+    }
+    data_mtx_.unlock();
+    return data_temp; //Theoretically should return by rval since C11 to avoid copying
+}
+
+// Try not to use this function either since it will interfere with the recording mechanism
+std::deque<micDataStamped> MicReadAlsa::moveData(){
+    data_mtx_.lock();
+    std::deque<micDataStamped> data_temp = std::move(data); //After moving the data vector should be empty
+    data_mtx_.unlock();
+    return data_temp; //Theoretically should return by rval since C11 to avoid copying
+}
+
+// DON'T USE THIS FUNCTION: I left it specifically to point out / demonstrate unsafe behavior
+std::deque<micDataStamped> MicReadAlsa::copyData(){
+    data_mtx_.lock();
+    std::deque<micDataStamped> data_temp = data; //Just copying data
     data_mtx_.unlock();
     return data_temp; //Theoretically should return by rval since C11 to avoid copying
 }
@@ -339,7 +373,7 @@ std::vector<micDataStamped> MicReadAlsa::copyData(){
 
 std::ostream& operator<<(std::ostream& os, const micDataStamped& data){
     os << "Timestamp: " << data.timestamp << std::endl;
-    os << "Data: " << data.frame << std::endl;
+    os << "Data: " << data.frames << std::endl;
     return os;
 }
 
@@ -350,8 +384,9 @@ std::ostream& operator<<(std::ostream& os, const std::vector<micDataStamped>& da
     }
     for(int i=0; i<data.size(); i++) {
         os << "Frame " << i << ":" << std::endl;
+        os << "\t Id: " << data[i].id << std::endl;
         os << "\t Timestamp: " << data[i].timestamp << std::endl;
-        os << "\t Data: " << data[i].frame << std::endl;
+        os << "\t Data: " << data[i].frames << std::endl;
     }
     return os;
 }
@@ -422,16 +457,17 @@ void MicReadAlsa::record_thread()
         // Sleeping
         std::this_thread::sleep_for (std::chrono::milliseconds(10));
         // Checking data
-        auto data = (record_only_) ? getData() : copyData();
+        auto data = copyUnrecordedData();
         // If data empty - let's wait more
         if(data.empty()) continue;
 
         for (auto iter=data.begin(); iter != data.end(); iter++)
         {
-            for(int i=0; i<iter->frame.size(); i++)
+            chunks_recorded_ += 1;
+            for(int i=0; i<iter->frames.size(); i++)
             {
                 //Recording data frame (only 1 channel)
-                write_word_swap_endian(f, iter->frame[i], (int)bits_per_sample_/8);
+                write_word_swap_endian(f, iter->frames[i], (int)bits_per_sample_/8);
 //                write_word(f, iter->frame[i]);
             }
         }
@@ -449,4 +485,16 @@ void MicReadAlsa::record_thread()
     // Fix the file header to contain the proper RIFF chunk size, which is (file size - 8) bytes
     f.seekp( 0 + 4 );
     write_word_swap_endian( f, file_length - 8, 4 );
+
+    printf("%s: Chunks recorded %ld ...\n",  name_.c_str(), getChunksRecorded());
+}
+
+long MicReadAlsa::getChunksRecorded() const
+{
+    return chunks_recorded_;
+}
+
+long MicReadAlsa::getChunksRead() const
+{
+    return chunks_read_;
 }

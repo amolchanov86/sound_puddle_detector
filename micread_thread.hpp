@@ -1,11 +1,10 @@
 /*
- * Class encapsulating reading from a microphone using ALSA.
- * Author: Artem Molchanov (08/2018)
- * Email: a.molchanov@swerve.ai
- *
- *
- * A minimal example:
- * int main()
+
+Class encapsulating reading from a microphone using ALSA.
+Author: Artem Molchanov (08/2018)
+Email: a.molchanov@swerve.ai
+A minimal example:
+int main()
 {
     MicReadAlsa mic_reader(true); //The first parameter (flag) means that we will wait until user calls start() function
     mic_reader.start();
@@ -20,6 +19,13 @@
     }
     return 0;
 }
+
+---Useful information:
+See more about ALSA programming here: https://www.linuxjournal.com/article/6735
+
+--- TODO:
+- bug: getData() should only erase data already recorded if recording is happening
+- little->big endian should happen before I put data in the micDataStamped container
  */
 
 #ifndef MIC_READ_THREAD_MICREAD_THREAD_HPP
@@ -30,6 +36,7 @@
 #include <string>
 #include <inttypes.h>
 #include <vector>
+#include <deque>
 
 // Thread handling
 #include <chrono>
@@ -39,8 +46,9 @@
 
 #include <alsa/asoundlib.h>
 
-
-#define MICREAD_DEF_FRAME_SIZE 512 //Smaller buffers resulted in the same millisecond time stamp
+// Buffer size in terms of frames.
+// Smaller buffers resulted in the same millisecond time stamp
+#define MICREAD_DEF_BUF_SIZE 512
 #define MICREAD_DEF_RATE 44100 //44100
 //#define MICREAD_DEF_BPS 16 //8
 //#define MICREAD_DEF_DEVICE "hw:0,0"
@@ -58,8 +66,18 @@
 
 struct micDataStamped
 {
+    micDataStamped(){
+        id = 0;
+        timestamp = 0;
+        flags.all = 0;
+    }
+    union {
+        uint8_t all; //summary of all flags (i.e. a byte containing them all)
+        uint8_t recorded:1;
+    } flags;
+    long int id; //counter of the chunk
     int64_t timestamp; //milliseconds time stamp
-    std::vector<int16_t> frame; //mic data itself
+    std::vector<int16_t> frames; //mic data itself
 };
 
 class MicReadAlsa
@@ -70,7 +88,7 @@ public:
                 bool record_only=true,
                 std::string filename_base=MICREAD_DEF_REC_FILENAME,
                 std::string device=MICREAD_DEF_DEVICE,
-                int buffer_frames=MICREAD_DEF_FRAME_SIZE,
+                int buffer_frames=MICREAD_DEF_BUF_SIZE,
                 unsigned int rate=MICREAD_DEF_RATE,
                 int channels=1,
                 snd_pcm_format_t format=SND_PCM_FORMAT_S16_LE,
@@ -89,19 +107,24 @@ public:
     bool isRunning() const {return run_fl_;} //checks if the thread is still running
 
     //--- Data handling
-    // The function locks the mutex, moves the data and clears the main buffer
-    // If record_only is set then the record thread calls this function
+    // The function locks the mutex, moves the recorded data and clears the main buffer
+    // If record is true it only copies and clears unrecorded data
+    // thus if the recording thread is hanging you may get nothing
+    // If record is false it just moves all the data.
+    // If record_only is true then the record thread calls this function and clears the data
     std::vector<micDataStamped> getData();
-    // The function locks the mutex, copies the data
-    std::vector<micDataStamped> copyData();//
     double getFreq() const {return freq_;} //Frequency of data reading
 
-    std::vector<micDataStamped> data; //Direct data access - unsafe. Better use getData() !!!
+    std::deque<micDataStamped> data; //Direct data access - unsafe. Better use getData() !!!
+
+    // Frame counters
+    long getChunksRead() const; //num of frames received from the device
+    long getChunksRecorded() const; //num of frames recorded from the device
 
     //--- Device handling
     //If constructor fails to open the device, use this function manually
     int openDevice(std::string device=MICREAD_DEF_DEVICE,
-                   int buffer_frames=MICREAD_DEF_FRAME_SIZE,
+                   int buffer_frames=MICREAD_DEF_BUF_SIZE,
                    unsigned int rate=MICREAD_DEF_RATE);
 
 protected:
@@ -136,9 +159,24 @@ protected:
     bool record_only_;
     bool record_;
 
+    long chunks_read_; //how many frames we received from the device
+    long chunks_recorded_; //how many frames we actually recorded
+
     bool openFiles();//Opens files that we are recording into
     std::string filename_base_;//We will modify this base to record csv and wav files
 
+    // This function copies only unrecorded data and marks the data as recorded
+    // It is also safe since it lock the thread
+    std::vector<micDataStamped> copyUnrecordedData();
+
+    // The copyData() is inherently unsafe to use: it locks the mutex, copies the data.
+    // Beware it does not clean anything.
+    // Unsafety reasons:
+    // - when you use getData it will clear the buffer. Thus copyData may never see portions of the data.
+    // - that is the reason I introduced copyUnrecordedData() for the recording thread. To only erase what we checked out.
+    std::deque<micDataStamped> copyData();
+    // This function is unsafe for similar reasons
+    std::deque<micDataStamped> moveData();
 };
 
 template <typename T>
