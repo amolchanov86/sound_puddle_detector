@@ -41,7 +41,7 @@ int main()
     //third par: record only, i.e. if record thread should clear the buffer
     mic_reader.start();
 
-    int iterations = 100;
+    int iterations = 200;
 
     for(int i=0; i<iterations && run_main_thread; i++){
         std::cout<<"Main thread running:"<<run_main_thread<<std::endl;
@@ -53,21 +53,21 @@ int main()
     }
 
     // Testing pause functionality
-    if(run_main_thread) {
-        printf("Trying to pause thread ...\n");
-        mic_reader.pause();
-        std::this_thread::sleep_for (std::chrono::milliseconds(5000));
-        mic_reader.start();
+//    if(run_main_thread) {
+//        printf("Trying to pause thread ...\n");
+//        mic_reader.pause();
+//        std::this_thread::sleep_for (std::chrono::milliseconds(5000));
+//        mic_reader.start();
 
-        // Testing resuming
-        printf("Trying to resume thread ...\n");
-        for(int i=0; i<iterations && run_main_thread; i++){
-            //10ms in my case was sort of optimal
-            std::this_thread::sleep_for (std::chrono::milliseconds(10));
-            std::cout << mic_reader.getData();
-            std::cout << "Freq: " << mic_reader.estReadFreq() << std::endl << std::flush;
-        }
-    }
+//        // Testing resuming
+//        printf("Trying to resume thread ...\n");
+//        for(int i=0; i<iterations && run_main_thread; i++){
+//            //10ms in my case was sort of optimal
+//            std::this_thread::sleep_for (std::chrono::milliseconds(10));
+//            std::cout << mic_reader.getData();
+//            std::cout << "Freq: " << mic_reader.estReadFreq() << " FPS (rate):" << mic_reader.estFPS() << std::endl << std::flush;
+//        }
+//    }
 
     // One does not have to call finish() since destructor will do the same job
     //mic_reader.finish();

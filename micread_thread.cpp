@@ -7,6 +7,7 @@
 MicReadAlsa::MicReadAlsa(bool manual_start,
                          bool record,
                          bool record_only,
+                         bool record_csv,
                          float record_freq,
                          std::string filename_base,
                          std::string device,
@@ -28,6 +29,7 @@ MicReadAlsa::MicReadAlsa(bool manual_start,
     channels_(channels),
     record_only_(record_only),
     record_(record),
+    record_csv_(record_csv),
     chunks_read_(0),
     chunks_recorded_(0),
     rec_freq_estimate_(0.)
@@ -423,6 +425,17 @@ std::ostream& write_word_swap_endian( std::ostream& outs, Word value, unsigned s
 void MicReadAlsa::record_thread()
 {
     //-----------------------------------------------------------------
+    // Opening CSV
+    std::ofstream csv_file;
+    csv_file.open(filename_base_ + ".csv");
+    if(record_csv_) {
+        csv_file << "id" << "," <<
+                    "timestamp" << "," <<
+                    "flag" << "," <<
+                    "frames" << std::endl;
+    }
+
+    //-----------------------------------------------------------------
     // PREPARING WAV HEADER
     std::ofstream f( filename_base_ + ".wav", std::ios::binary );
 
@@ -449,7 +462,7 @@ void MicReadAlsa::record_thread()
 
     printf("%s: Recording Thread ready ...\n", name_.c_str());
     //-----------------------------------------------------------------
-    // RECORDING WAV
+    // RECORDING WAV and CSV
     while(ready_fl_)
     {
         // Pausing together with the reading thread
@@ -477,12 +490,32 @@ void MicReadAlsa::record_thread()
         {
             chunks_recorded_ ++;
             chunks_recorded_cur ++;
+
+            // CSV nonframe information
+            if(record_csv_) {
+                csv_file << std::to_string(iter->id) << "," <<
+                            std::to_string(iter->timestamp) << "," <<
+                            std::to_string(iter->flags.all) << ",";
+            }
+
+            // WAV and CSV frames writing
             for(int i=0; i<iter->frames.size(); i++)
             {
                 //Recording data frame (only 1 channel)
                 write_word_swap_endian(f, iter->frames[i], (int)bits_per_sample_/8);
-//                write_word(f, iter->frame[i]);
+                // write_word(f, iter->frame[i]);
+
+                if(record_csv_) { //Space separation for easy splitting
+                    csv_file << " " << std::to_string(iter->frames[i]);
+                }
+
             }
+
+            // CSV ENDLINE
+            if(record_csv_) {
+                csv_file<<std::endl;
+            }
+
         }
 
         //Calculating freq
@@ -493,6 +526,9 @@ void MicReadAlsa::record_thread()
 
 
     }
+    //-----------------------------------------------------------------
+    // --- CLOSING CSV
+    csv_file.close();
 
     //-----------------------------------------------------------------
     // --- CLOSING WAV RECODRING

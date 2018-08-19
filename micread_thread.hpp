@@ -86,6 +86,7 @@ public:
     MicReadAlsa(bool manual_start=false,
                 bool record=true,
                 bool record_only=true,
+                bool record_csv=true,
                 float record_freq=MICREAD_DEF_REC_FREQ,
                 std::string filename_base=MICREAD_DEF_REC_FILENAME,
                 std::string device=MICREAD_DEF_DEVICE,
@@ -171,6 +172,7 @@ protected:
     double fps_est_;
     bool record_only_;
     bool record_;
+    bool record_csv_;
 
     long chunks_read_; //how many frames we received from the device
     long chunks_recorded_; //how many frames we actually recorded
