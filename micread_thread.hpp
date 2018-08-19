@@ -90,7 +90,7 @@ public:
                 float record_freq=MICREAD_DEF_REC_FREQ,
                 std::string filename_base=MICREAD_DEF_REC_FILENAME,
                 std::string device=MICREAD_DEF_DEVICE,
-                int buffer_frames=MICREAD_DEF_BUF_SIZE,
+                int buffer_frames_num=MICREAD_DEF_BUF_SIZE,
                 unsigned int rate=MICREAD_DEF_RATE,
                 int channels=1,
                 snd_pcm_format_t format=SND_PCM_FORMAT_S16_LE,

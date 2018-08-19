@@ -14,7 +14,12 @@
 
 #include "micread_thread.hpp"
 
-MicReadAlsa mic_reader(true, true, false);
+
+bool manual_start=false;
+bool record=true;
+bool record_only=true;
+bool record_csv=true;
+MicReadAlsa mic_reader(manual_start, record, record_only, record_csv);
 
 bool run_main_thread;
 
@@ -47,7 +52,9 @@ int main()
         std::cout<<"Main thread running:"<<run_main_thread<<std::endl;
         //10ms in my case was sort of optimal, i.e. it spits one frame per step
         std::this_thread::sleep_for (std::chrono::milliseconds(10));
-        std::cout << mic_reader.getData();
+        if(record && !record_only) {
+            std::cout << mic_reader.getData();
+        }
         std::cout << std::endl;
         std::cout << "Freq: " << mic_reader.estReadFreq() << std::endl << std::flush;
     }

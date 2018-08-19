@@ -11,7 +11,7 @@ MicReadAlsa::MicReadAlsa(bool manual_start,
                          float record_freq,
                          std::string filename_base,
                          std::string device,
-                         int buffer_frames,
+                         int buffer_frames_num,
                          unsigned int rate,
                          int channels,
                          snd_pcm_format_t format,
@@ -19,7 +19,7 @@ MicReadAlsa::MicReadAlsa(bool manual_start,
     run_fl_(false),
     ready_fl_(true),
     name_(name),
-    buffer_frames_(buffer_frames),
+    buffer_frames_(buffer_frames_num),
     rate_(rate),
     format_(format),
     device_(device),
@@ -480,7 +480,7 @@ void MicReadAlsa::record_thread()
         // Sleeping
         std::this_thread::sleep_for (std::chrono::milliseconds(rec_delay_));
         // Checking data
-        auto data = copyUnrecordedData();
+        auto data = (record_only_) ? getData() : copyUnrecordedData();
         // If data empty - let's wait more
         if(data.empty()) continue;
 
