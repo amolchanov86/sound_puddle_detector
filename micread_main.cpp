@@ -46,7 +46,7 @@ int main()
     //third par: record only, i.e. if record thread should clear the buffer
     mic_reader.start();
 
-    int iterations = 200;
+    int iterations = 300;
 
     for(int i=0; i<iterations && run_main_thread; i++){
         std::cout<<"Main thread running:"<<run_main_thread<<std::endl;
