@@ -51,7 +51,7 @@ See more about ALSA programming here: https://www.linuxjournal.com/article/6735
 #define MICREAD_DEF_BUF_SIZE 512
 #define MICREAD_DEF_RATE 44100 //44100
 //#define MICREAD_DEF_BPS 16 //8
-#define MICREAD_DEF_DEVICE "hw:4,0"
+#define MICREAD_DEF_DEVICE "hw:2,0"
 //#define MICREAD_DEF_DEVICE "default"
 #define MICREAD_DEF_NAME "MicRead"
 #define MICREAD_DEF_REC_FILENAME "rec_mic"

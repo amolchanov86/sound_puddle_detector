@@ -146,7 +146,7 @@ void MicReadAlsa::run() {
             {
                 micDataStamped chunk_stamped;
                 chunk_stamped.id = chunks_read_;
-                chunk_stamped.flags.recorded = !record_;
+                chunk_stamped.flags.recorded = !record_ || (record_ && record_only_);
                 chunks_read_ += 1;
 
                 long timestamp = time.count(); //count milliseconds

@@ -17,7 +17,7 @@
 
 bool manual_start=false;
 bool record=true;
-bool record_only=false;
+bool record_only=true;
 bool record_csv=true;
 MicReadAlsa mic_reader(manual_start, record, record_only, record_csv);
 
@@ -33,10 +33,6 @@ void signal_handler(int signal)
 int main(int argc, char**argv)
 {
     run_main_thread = true;
-
-//    if (argc > 1) {
-//        device = std::string(argv[1]);
-//    }
 
     // Handling ctrl-c
     struct sigaction sigIntHandler;
