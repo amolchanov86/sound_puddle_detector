@@ -4,7 +4,8 @@
 #include <iostream>
 #include <climits>
 
-MicReadAlsa::MicReadAlsa(bool manual_start,
+MicReadAlsa::MicReadAlsa(std::chrono::steady_clock::time_point t_start,
+                         bool manual_start,
                          bool record,
                          bool record_only,
                          bool record_csv,
@@ -32,8 +33,13 @@ MicReadAlsa::MicReadAlsa(bool manual_start,
     record_csv_(record_csv),
     chunks_read_(0),
     chunks_recorded_(0),
-    rec_freq_estimate_(0.)
+    rec_freq_estimate_(0.),
+    max_est_size_(100.),
+    t_start_(t_start)
 {
+    rec_freq_estimates.resize(100);
+    read_freq_estimates.resize(100);
+    read_fps_estimates.resize(100);
     setRecFreq(record_freq);
 
     bits_per_sample_ = snd_pcm_format_width(format_);
@@ -131,9 +137,12 @@ void MicReadAlsa::run() {
 
         // ALSA
         //Creating a timestamp
-        auto time = std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()
-                    );
+//        auto time = std::chrono::duration_cast<std::chrono::microseconds>(
+//                    std::chrono::system_clock::now().time_since_epoch()
+//                    );
+        auto time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t_start_);
+//        chrono::duration<double> fsec = std::chrono::duration_cast<std::chrono::microseconds>(t_now - t_start_);
+
         if ((err = snd_pcm_readi(capture_handle_, buffer_, buffer_frames_)) != buffer_frames_)
         {
             fprintf(stderr, "%s: ERROR: Read from audio interface failed (%s)\n",
@@ -165,6 +174,12 @@ void MicReadAlsa::run() {
                 //Calculating freq
                 freq_ = (double) 1.0 / (double)(time - time_prev).count() * 1000000.0;
                 fps_est_= (double) buffer_frames_ / (double)(time - time_prev).count() * 1000000.0;
+                read_freq_estimates.push_back(freq_);
+                read_fps_estimates.push_back(fps_est_);
+                if(read_freq_estimates.size() > max_est_size_) {
+                  read_freq_estimates.pop_front();
+                  read_fps_estimates.pop_front();
+                }
 //                std::cout << "Read freq: " << estReadFreq() << " FPS:" << estFPS() << std::endl;
                 time_prev = time;
 
@@ -520,8 +535,21 @@ void MicReadAlsa::record_thread()
 
         //Calculating freq
         rec_freq_estimate_ = (double) 1.0 / (rec_time - rec_time_prev).count() * 1000000;
+        rec_freq_estimates.push_back(rec_freq_estimate_);
+        if(rec_freq_estimates.size() > max_est_size_) {
+          rec_freq_estimates.pop_front();
+        }
 
-        std::cout << "Rec freq: " << estRecFreq() << " Chunks recorded:" << chunks_recorded_cur << std::endl;
+        if (chunks_recorded_ % 500 == 0) {
+//          std::cout << "Rec freq: " << estRecFreq() << " Chunks recorded:" << chunks_recorded_cur << std::endl;
+//          std::cout<<read_freq_estimates.size()<<read_freq_estimates.size()<<rec_freq_estimates.size()<<std::endl;
+          fprintf(stdout, "%s: Read freq: %.2f Read fps: %.2f Rec freq: %.2f Chunks recorded: %ld\n",
+                  name_.c_str(),
+                  estReadFreq(),
+                  estFPS(),
+                  estRecFreq(),
+                  chunks_recorded_);
+        }
         rec_time_prev = rec_time;
 
 

@@ -43,6 +43,7 @@ See more about ALSA programming here: https://www.linuxjournal.com/article/6735
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <numeric>
 
 #include <alsa/asoundlib.h>
 
@@ -83,7 +84,8 @@ struct micDataStamped
 class MicReadAlsa
 {
 public:
-    MicReadAlsa(bool manual_start=false,
+    MicReadAlsa(std::chrono::steady_clock::time_point t_start,
+                bool manual_start=false,
                 bool record=true,
                 bool record_only=true,
                 bool record_csv=true,
@@ -115,8 +117,8 @@ public:
     // If record is false it just moves all the data.
     // If record_only is true then the record thread calls this function and clears the data
     std::vector<micDataStamped> getData();
-    double estReadFreq() const {return freq_;} //Frequency of data reading
-    double estFPS() const {return fps_est_;} //Frames per Second estimate
+    double estReadFreq() const {return std::accumulate( read_freq_estimates.begin(), read_freq_estimates.end(), 0.0)/read_freq_estimates.size();} //Frequency of data reading
+    double estFPS() const {return std::accumulate( read_fps_estimates.begin(), read_fps_estimates.end(), 0.0)/read_fps_estimates.size();} //Frames per Second estimate
 
     std::deque<micDataStamped> data; //Direct data access - unsafe. Better use getData() !!!
 
@@ -136,7 +138,7 @@ public:
     }
 
     // Get measured recording freq
-    float estRecFreq() const {return rec_freq_estimate_;}
+    float estRecFreq() const {return std::accumulate( rec_freq_estimates.begin(), rec_freq_estimates.end(), 0.0)/rec_freq_estimates.size();}
 
 
 protected:
@@ -169,6 +171,10 @@ protected:
     void record_thread();
     double freq_; // estimated frequency of the reading thread
     double rec_freq_estimate_;
+    std::deque<float> rec_freq_estimates;
+    std::deque<float> read_freq_estimates;
+    std::deque<float> read_fps_estimates;
+    int max_est_size_;
     double fps_est_;
     bool record_only_;
     bool record_;
@@ -176,6 +182,7 @@ protected:
 
     long chunks_read_; //how many frames we received from the device
     long chunks_recorded_; //how many frames we actually recorded
+    std::chrono::steady_clock::time_point t_start_;
 
     bool openFiles();//Opens files that we are recording into
     std::string filename_base_;//We will modify this base to record csv and wav files
