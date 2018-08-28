@@ -35,7 +35,7 @@ def extract_features(parent_dir, sub_dirs, label_names, file_ext="*.wav", bands 
         for fn in glob.glob(os.path.join(parent_dir, sub_dir, file_ext)):
             print('')
             print('  loading file %s ...' % fn)
-            sound_clip,s = librosa.load(fn)
+            sound_clip,s = librosa.load(fn, sr=44100)
             # label = fn.split('/')[2].split('-')[1]
             label_name = fn.rsplit(os.sep, 1)[1].rsplit('.', 1)[0].split('_')[1]
             label = label_names[label_name]
@@ -52,22 +52,22 @@ def extract_features(parent_dir, sub_dirs, label_names, file_ext="*.wav", bands 
     features = np.asarray(mfccs).reshape(len(mfccs),frames,bands)
     return np.array(features), np.array(labels, dtype = np.int)
 
-def extract_features_lbldirs(parent_dir, sub_dirs, label_names, file_ext="*.wav", bands = 20, frames = 41):
+def extract_features_lbldirs(parent_dir, label_names, file_ext="*.wav", bands = 20, frames = 41):
     """
     Labels = foldernames
     """
     window_size = 512 * (frames - 1)
     mfccs = []
     labels = []
-    for l, sub_dir in enumerate(sub_dirs):
+    for l, sub_dir in enumerate(label_names):
         for fn in glob.glob(os.path.join(parent_dir, sub_dir, file_ext)):
             print('')
             print('  loading file %s ...' % fn)
-            sound_clip,s = librosa.load(fn)
+            sound_clip,s = librosa.load(fn, sr=44100)
             # label = fn.split('/')[2].split('-')[1]
-            label_name = fn.rsplit(os.sep, 1)[1].rsplit('.', 1)[0].split('_')[1]
+            label_name = sub_dir
             label = label_names[label_name]
-            print('  extracting features', end='')
+            print('  extracting features. Rate: %f' % (s), end='')
             i = 0
             for (start,end) in windows(sound_clip, window_size):
                 i += 1
@@ -91,8 +91,18 @@ def one_hot_encode(labels):
 ## Getting data
 label_names = {'dry': 0, 'wet': 1}
 label_max = len(label_names) - 1
-parent_dir = '_data/sound_wetroad_dataset/source'
-prepickled_data_filename = '_data/sound_wetroad_dataset/wetness_data.pkl'
+
+## MIT dataset
+# parent_dir = '_data/sound_wetroad_dataset/source'
+# prepickled_data_filename = '_data/sound_wetroad_dataset/wetness_data.pkl'
+
+train_parent_dir = "_data/thunderhill/thunderhill_2018_08_22/train"
+val_parent_dir = "_data/thunderhill/thunderhill_2018_08_22/val"
+
+prepickled_data_filename = '_data/thunderhill/thunderhill_2018_08_22/wetness_data.pkl'
+outdir = "_results_temp/mic_wet_predictor"
+os.makedirs(outdir, exist_ok=True)
+
 
 if os.path.isfile(prepickled_data_filename):
     print('Loading pickled data %s ...' % prepickled_data_filename)
@@ -105,13 +115,11 @@ if os.path.isfile(prepickled_data_filename):
 
 else:
     print('Extracting training features ...')
-    tr_sub_dirs = ['dry1', 'dry2', 'wet1', 'wet2']
-    tr_features,tr_labels = extract_features(parent_dir,tr_sub_dirs, label_names=label_names)
+    tr_features,tr_labels = extract_features_lbldirs(train_parent_dir, label_names=label_names)
     tr_labels = one_hot_encode(tr_labels)
 
     print('Extracting test features ...')
-    ts_sub_dirs = ['dry3', 'wet3']
-    ts_features,ts_labels = extract_features(parent_dir,ts_sub_dirs, label_names=label_names)
+    ts_features,ts_labels = extract_features_lbldirs(val_parent_dir, label_names=label_names)
     ts_labels = one_hot_encode(ts_labels)
 
 print('Data shapes: train/test  data/lbl', tr_features.shape, tr_labels.shape, ts_features.shape, ts_labels.shape)
@@ -147,7 +155,7 @@ print('Constructin NN graph ...')
 tf.reset_default_graph()
 
 learning_rate = 0.001
-batch_size = 50
+batch_size = 50 #50
 display_step = 200
 tr_examples_num = tr_features.shape[0]
 epoch_size = int(np.ceil(tr_examples_num / batch_size))
@@ -173,7 +181,7 @@ def RNN(x, weight, bias):
     output, state = tf.nn.dynamic_rnn(cell, x, dtype = tf.float32)
     output = tf.transpose(output, [1, 0, 2])
     last = tf.gather(output, int(output.get_shape()[0]) - 1)
-    return tf.nn.softmax(tf.matmul(last, weight) + bias)
+    return tf.nn.softmax(tf.matmul(last, weight) + bias, name="pred")
 
 def BRNN(x, weight, bias):
     cell1_fw = rnn_cell.LSTMCell(n_hidden, state_is_tuple=True)
@@ -188,7 +196,7 @@ def BRNN(x, weight, bias):
     # print(output[-1].get_shape().as_list())
     output = tf.transpose(output[-1], [1, 0, 2])
     last = tf.gather(output, int(output.get_shape()[0]) - 1)
-    return tf.nn.softmax(tf.matmul(last, weight) + bias)
+    return tf.nn.softmax(tf.matmul(last, weight) + bias, name="pred")
 
 
 prediction = RNN(x, weight, bias)
@@ -199,7 +207,7 @@ optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(loss_
 
 # Evaluate model
 correct_pred = tf.equal(tf.argmax(prediction,1), tf.argmax(y,1))
-accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32), name="accuracy")
 meanIOU = tf.metrics.mean_iou(tf.argmax(y, axis=1), tf.argmax(prediction, axis=1), n_classes, name='iou')
 
 
@@ -209,9 +217,12 @@ init = tf.global_variables_initializer()
 #IoU uses local variables (i.e. variables for temporary data)
 local_init = tf.local_variables_initializer()
 
+best_iou = -1
 with tf.Session() as session:
     session.run(init)
     session.run(local_init)
+
+    saver = tf.train.Saver(max_to_keep=2)
 
     for epoch in range(epochs_num):
         training_accuracy_vec = []
@@ -240,3 +251,8 @@ with tf.Session() as session:
         test_results = session.run([accuracy, meanIOU], feed_dict={x: ts_features, y: ts_labels})
         #NOTE: iou returns a tupple (meanIoU, confusion_matrix)
         print('Test accuracy: %5.3f / mean IoU: %5.3f ' % (test_results[0], test_results[1][0]))
+        iou_val = test_results[1][0]
+        acc_val = test_results[0]
+        if iou_val > best_iou:
+            best_iou = iou_val
+            saver.save(session, outdir + os.sep + "micpred_rnn__ep_%d__iou_%.3f__acc_%.3f" % (epoch, iou_val, acc_val))

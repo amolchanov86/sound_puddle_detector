@@ -17,7 +17,7 @@
 
 bool manual_start=false;
 bool record=true;
-bool record_only=true;
+bool record_only=false;
 bool record_csv=true;
 MicReadAlsa mic_reader(manual_start, record, record_only, record_csv);
 
@@ -30,9 +30,13 @@ void signal_handler(int signal)
   run_main_thread = false;
 }
 
-int main()
+int main(int argc, char**argv)
 {
     run_main_thread = true;
+
+//    if (argc > 1) {
+//        device = std::string(argv[1]);
+//    }
 
     // Handling ctrl-c
     struct sigaction sigIntHandler;
@@ -46,7 +50,7 @@ int main()
     //third par: record only, i.e. if record thread should clear the buffer
     mic_reader.start();
 
-    int iterations = 200;
+    int iterations = 1000;
 
     for(int i=0; i<iterations && run_main_thread; i++){
         std::cout<<"Main thread running:"<<run_main_thread<<std::endl;
